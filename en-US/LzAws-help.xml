@@ -1,0 +1,273 @@
+<?xml version="1.0" encoding="utf-8"?>
+<helpItems schema="maml">
+    <command:command xmlns:maml="http://schemas.microsoft.com/maml/2004/10" xmlns:command="http://schemas.microsoft.com/maml/dev/command/2004/10" xmlns:dev="http://schemas.microsoft.com/maml/dev/2004/10">
+        <command:details>
+            <command:name>Get-AwsCommands</command:name>
+            <maml:description>
+                <maml:para>Lists all available AWS commands in this module</maml:para>
+            </maml:description>
+            <command:verb>Get</command:verb>
+            <command:noun>AwsCommands</command:noun>
+        </command:details>
+        <maml:description>
+            <maml:para>Provides a list of all public cmdlets available in this module along with their synopsis.</maml:para>
+        </maml:description>
+        <command:examples>
+            <command:example>
+                <maml:title>Example 1</maml:title>
+                <command:code>Get-AwsCommands</command:code>
+                <maml:description>
+                    <maml:para>Lists all available commands with their descriptions</maml:para>
+                </maml:description>
+            </command:example>
+        </command:examples>
+    </command:command>
+    
+    <command:command xmlns:maml="http://schemas.microsoft.com/maml/2004/10" xmlns:command="http://schemas.microsoft.com/maml/dev/command/2004/10" xmlns:dev="http://schemas.microsoft.com/maml/dev/2004/10">
+        <command:details>
+            <command:name>Deploy-WebappAws</command:name>
+            <command:verb>Deploy</command:verb>
+            <command:noun>WebappAws</command:noun>
+            <maml:description>
+                <maml:para>Deploys a web application to AWS infrastructure.</maml:para>
+            </maml:description>
+        </command:details>
+        <maml:description>
+            <maml:para>Deploys a web application to AWS infrastructure including necessary S3 buckets, CloudFront distributions, and related resources.</maml:para>
+        </maml:description>
+        <command:syntax>
+            <command:syntaxItem>
+                <maml:name>Deploy-WebappAws</maml:name>
+                <command:parameter required="true">
+                    <maml:name>WebappPath</maml:name>
+                    <maml:description>
+                        <maml:para>Path to the web application files to deploy.</maml:para>
+                    </maml:description>
+                    <command:parameterValue required="true">String</command:parameterValue>
+                </command:parameter>
+                <command:parameter required="false">
+                    <maml:name>Environment</maml:name>
+                    <maml:description>
+                        <maml:para>Target environment for deployment (e.g., Development, Production).</maml:para>
+                    </maml:description>
+                    <command:parameterValue required="false">String</command:parameterValue>
+                </command:parameter>
+            </command:syntaxItem>
+        </command:syntax>
+        <command:examples>
+            <command:example>
+                <maml:title>Example 1: Deploy to production</maml:title>
+                <command:code>Deploy-WebappAws -WebappPath "./dist" -Environment "Production"</command:code>
+                <maml:description>
+                    <maml:para>Deploys the web application from the ./dist directory to the production environment.</maml:para>
+                </maml:description>
+            </command:example>
+        </command:examples>
+    </command:command>
+
+    <command:command xmlns:maml="http://schemas.microsoft.com/maml/2004/10" xmlns:command="http://schemas.microsoft.com/maml/dev/command/2004/10" xmlns:dev="http://schemas.microsoft.com/maml/dev/2004/10">
+        <command:details>
+            <command:name>Deploy-TenantAws</command:name>
+            <command:verb>Deploy</command:verb>
+            <command:noun>TenantAws</command:noun>
+            <maml:description>
+                <maml:para>Deploys a single tenant configuration to AWS.</maml:para>
+            </maml:description>
+        </command:details>
+        <maml:description>
+            <maml:para>Deploys or updates a single tenant's infrastructure and configuration in AWS.</maml:para>
+        </maml:description>
+        <command:syntax>
+            <command:syntaxItem>
+                <maml:name>Deploy-TenantAws</maml:name>
+                <command:parameter required="true">
+                    <maml:name>TenantId</maml:name>
+                    <maml:description>
+                        <maml:para>The unique identifier for the tenant.</maml:para>
+                    </maml:description>
+                    <command:parameterValue required="true">String</command:parameterValue>
+                </command:parameter>
+                <command:parameter required="false">
+                    <maml:name>ConfigPath</maml:name>
+                    <maml:description>
+                        <maml:para>Path to tenant configuration file.</maml:para>
+                    </maml:description>
+                    <command:parameterValue required="false">String</command:parameterValue>
+                </command:parameter>
+            </command:syntaxItem>
+        </command:syntax>
+        <command:examples>
+            <command:example>
+                <maml:title>Example 1: Deploy single tenant</maml:title>
+                <command:code>Deploy-TenantAws -TenantId "tenant1" -ConfigPath "./tenant-config.json"</command:code>
+                <maml:description>
+                    <maml:para>Deploys or updates the specified tenant using the provided configuration file.</maml:para>
+                </maml:description>
+            </command:example>
+        </command:examples>
+    </command:command>
+
+    <command:command xmlns:maml="http://schemas.microsoft.com/maml/2004/10" xmlns:command="http://schemas.microsoft.com/maml/dev/command/2004/10" xmlns:dev="http://schemas.microsoft.com/maml/dev/2004/10">
+        <command:details>
+            <command:name>Deploy-TenantsAws</command:name>
+            <command:verb>Deploy</command:verb>
+            <command:noun>TenantsAws</command:noun>
+            <maml:description>
+                <maml:para>Deploys multiple tenant configurations to AWS.</maml:para>
+            </maml:description>
+        </command:details>
+        <maml:description>
+            <maml:para>Deploys or updates multiple tenants' infrastructure and configurations in AWS simultaneously.</maml:para>
+        </maml:description>
+        <command:syntax>
+            <command:syntaxItem>
+                <maml:name>Deploy-TenantsAws</maml:name>
+                <command:parameter required="true">
+                    <maml:name>ConfigPath</maml:name>
+                    <maml:description>
+                        <maml:para>Path to the directory containing tenant configurations.</maml:para>
+                    </maml:description>
+                    <command:parameterValue required="true">String</command:parameterValue>
+                </command:parameter>
+            </command:syntaxItem>
+        </command:syntax>
+        <command:examples>
+            <command:example>
+                <maml:title>Example 1: Deploy all tenants</maml:title>
+                <command:code>Deploy-TenantsAws -ConfigPath "./tenant-configs"</command:code>
+                <maml:description>
+                    <maml:para>Deploys or updates all tenants using configuration files in the specified directory.</maml:para>
+                </maml:description>
+            </command:example>
+        </command:examples>
+    </command:command>
+
+    <command:command xmlns:maml="http://schemas.microsoft.com/maml/2004/10" xmlns:command="http://schemas.microsoft.com/maml/dev/command/2004/10" xmlns:dev="http://schemas.microsoft.com/maml/dev/2004/10">
+        <command:details>
+            <command:name>Get-CDNLogAws</command:name>
+            <command:verb>Get</command:verb>
+            <command:noun>CDNLogAws</command:noun>
+            <maml:description>
+                <maml:para>Retrieves and processes CloudFront CDN logs from AWS S3</maml:para>
+            </maml:description>
+        </command:details>
+        <maml:description>
+            <maml:para>Gets the latest CloudFront CDN log file from an S3 bucket for a specific tenant, decompresses it, and converts it to a simplified CSV format. The script handles downloading, decompression, parsing and conversion of the log data.</maml:para>
+        </maml:description>
+        <command:parameters>
+            <command:parameter required="true" position="named">
+                <maml:name>TenantKey</maml:name>
+                <maml:description>
+                    <maml:para>The tenant identifier used to locate the correct S3 bucket</maml:para>
+                </maml:description>
+                <command:parameterValue required="true">String</command:parameterValue>
+            </command:parameter>
+            <command:parameter required="false" position="named">
+                <maml:name>Guid</maml:name>
+                <maml:description>
+                    <maml:para>Optional GUID parameter for future use</maml:para>
+                </maml:description>
+                <command:parameterValue required="false">String</command:parameterValue>
+            </command:parameter>
+        </command:parameters>
+        <command:examples>
+            <command:example>
+                <maml:title>-------------------------- EXAMPLE 1 --------------------------</maml:title>
+                <maml:introduction>
+                    <maml:para>Download and process CDN logs for a tenant</maml:para>
+                </maml:introduction>
+                <dev:code>Get-CDNLogAws -TenantKey "tenant1"</dev:code>
+                <dev:remarks>
+                    <maml:para>Downloads and processes the latest CDN log for tenant1</maml:para>
+                </dev:remarks>
+            </command:example>
+        </command:examples>
+        <maml:relatedLinks>
+            <maml:navigationLink>
+                <maml:linkText>AWS CloudFront Documentation</maml:linkText>
+                <maml:uri>https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/AccessLogs.html</maml:uri>
+            </maml:navigationLink>
+        </maml:relatedLinks>
+        <command:returnValues>
+            <command:returnValue>
+                <dev:type>File</dev:type>
+                <maml:description>
+                    <maml:para>Creates a CSV file named 'cloudfront_log_simplified.csv' containing the processed log data</maml:para>
+                </maml:description>
+            </command:returnValue>
+        </command:returnValues>
+        <command:requirements>
+            <maml:para>Valid AWS credentials and appropriate S3 permissions</maml:para>
+            <maml:para>AWS Tools for PowerShell module</maml:para>
+        </command:requirements>
+    </command:command>
+
+    <command:command xmlns:maml="http://schemas.microsoft.com/maml/2004/10" xmlns:command="http://schemas.microsoft.com/maml/dev/command/2004/10" xmlns:dev="http://schemas.microsoft.com/maml/dev/2004/10">
+        <command:details>
+            <command:name>Deploy-AuthsAws</command:name>
+            <command:verb>Deploy</command:verb>
+            <command:noun>AuthsAws</command:noun>
+            <maml:description>
+                <maml:para>Deploys authentication configurations to AWS</maml:para>
+            </maml:description>
+        </command:details>
+        <maml:description>
+            <maml:para>Deploys or updates authentication and authorization configurations in AWS, including Cognito User Pools, Identity Pools, and related resources.</maml:para>
+        </maml:description>
+        <command:syntax>
+            <command:syntaxItem>
+                <maml:name>Deploy-AuthsAws</maml:name>
+            </command:syntaxItem>
+        </command:syntax>
+        <command:examples>
+            <command:example>
+                <maml:title>Example 1: Deploy authentication configurations</maml:title>
+                <command:code>Deploy-AuthsAws</command:code>
+                <maml:description>
+                    <maml:para>Deploys the authentication configurations defined in the system config</maml:para>
+                </maml:description>
+            </command:example>
+        </command:examples>
+        <maml:alertSet>
+            <maml:alert>
+                <maml:para>Requires valid AWS credentials and appropriate permissions</maml:para>
+            </maml:alert>
+        </maml:alertSet>
+    </command:command>
+
+    <command:command xmlns:maml="http://schemas.microsoft.com/maml/2004/10" xmlns:command="http://schemas.microsoft.com/maml/dev/command/2004/10" xmlns:dev="http://schemas.microsoft.com/maml/dev/2004/10">
+        <command:details>
+            <command:name>Deploy-AssetsAws</command:name>
+            <command:verb>Deploy</command:verb>
+            <command:noun>AssetsAws</command:noun>
+            <maml:description>
+                <maml:para>Deploys system and tenant assets to AWS S3 buckets</maml:para>
+            </maml:description>
+        </command:details>
+        <maml:description>
+            <maml:para>Deploys assets from the Tenancies solution to AWS S3 buckets for both system-level and tenant-specific assets. Processes tenant configurations to determine appropriate bucket names and asset deployments based on domain structure. Supports both single-level tenant domains (tenant.example.com) and two-level tenant domains (subtenant.tenant.example.com).</maml:para>
+        </maml:description>
+        <command:syntax>
+            <command:syntaxItem>
+                <maml:name>Deploy-AssetsAws</maml:name>
+            </command:syntaxItem>
+        </command:syntax>
+        <command:examples>
+            <command:example>
+                <maml:title>Example 1: Deploy all assets</maml:title>
+                <command:code>Deploy-AssetsAws</command:code>
+                <maml:description>
+                    <maml:para>Deploys all system and tenant assets based on configuration</maml:para>
+                </maml:description>
+            </command:example>
+        </command:examples>
+        <maml:alertSet>
+            <maml:alert>
+                <maml:para>- Must be run from the Tenancy Solution root folder</maml:para>
+                <maml:para>- Tenant projects must follow naming convention: [tenant][-subtenant]</maml:para>
+                <maml:para>- Do not prefix project names with system key</maml:para>
+                <maml:para>- Primarily intended as a development tool</maml:para>
+            </maml:alert>
+        </maml:alertSet>
+    </command:command>
+</helpItems> 

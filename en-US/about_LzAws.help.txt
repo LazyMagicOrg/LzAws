@@ -1,0 +1,12 @@
+TOPIC
+    about_LzAws
+
+SHORT DESCRIPTION
+    AWS infrastructure management tools
+
+LONG DESCRIPTION
+    This module provides cmdlets for managing AWS infrastructure deployments.
+    
+    The following cmdlets are included:
+    - Deploy-* cmdlets for deploying various AWS resources
+    - Get-* cmdlets for retrieving information
