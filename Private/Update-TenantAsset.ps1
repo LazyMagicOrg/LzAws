@@ -17,6 +17,16 @@ function Update-TenantAsset {
 
     $ProjectFolder = "$ProjectName"
 
+    $PathKey = "system"
+    if($ProjectName -ne "system" ) {
+        if($ProjectName.Split('-').Count -gt 1) {
+            $PathKey = "subtenancy"
+        }
+        else {
+            $PathKey = "tenant"
+        }
+    }
+
     if(-not (Test-Path $ProjectFolder -PathType Container)) {
         throw "Folder $ProjectFolder not found"
     }
@@ -55,7 +65,7 @@ function Update-TenantAsset {
                     $Hash = Get-FileHash -Path $Asset.FullName -Algorithm SHA256
                     $RelativePath = $Asset.FullName.Substring($AssetLanguageLength + 1).Replace("\", "/")
                     #$RelativePath = $TenancyName + "/" + $AssetLanguageName + "/" + $RelativePath
-                    $RelativePath = "subtenancy/" + $AssetLanguageName + "/" + $RelativePath
+                    $RelativePath = $PathKey + "/" + $AssetLanguageName + "/" + $RelativePath
                     $Manifest += @{
                         hash = "sha256-$($Hash.Hash)"
                         url = "$RelativePath"

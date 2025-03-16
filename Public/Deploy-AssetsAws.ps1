@@ -34,7 +34,7 @@ function Deploy-AssetsAws {
     Write-Host "Processing tenant configurations..."
     $Tenants = $SystemConfig.Config.Tenants
     foreach($TenantKey in $Tenants.Keys) {
-        Write-Host "`nProcessing tenant: $TenantKey"
+        Write-Host "Processing tenant: $TenantKey"
         $TenantConfigJson = Get-TenantConfig $TenantKey
         $KvsEntries = $TenantConfigJson | ConvertFrom-Json -Depth 10
 
@@ -65,7 +65,7 @@ function Deploy-AssetsAws {
                 throw "Invalid domain format. Cannot determine tenancy project from domain: $Domain"
             }
 
-            Write-Host "`nProcessing domain configuration:"
+            Write-Host "Processing domain configuration:"
             Write-Host "Domain: $Domain"
             Write-Host "Tenant: $Tenant"
             Write-Host "Subtenant: $Subtenant"
