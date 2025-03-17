@@ -5,9 +5,14 @@ function Create-DynamoDbTable {
         [string]$TableName
     )
     try {
+
+        $SystemConfig = Get-SystemConfig 
+        $Region = $SystemConfig.Region
+        $ProfileName = $SystemConfig.ProfileName
+
         # Check if table exists
         try {
-            $ExistingTable = Get-DDBTable -TableName $TableName -Region $Region -ErrorAction SilentlyContinue
+            $ExistingTable = Get-DDBTable -TableName $TableName -Region $Region -ErrorAction SilentlyContinue -ProfileName $ProfileName
         }
         catch {
             $ExistingTable = $null
@@ -32,8 +37,10 @@ function Create-DynamoDbTable {
         # $Schema | Add-DDBIndexSchema -Global -IndexName "GSI1" -HashKeyName "GSI1PK" -RangeKeyName "GSI1SK" -RangeKeyDataType "S" -ProjectionType "include" -NonKeyAttribute "Status", "UpdateUtcTick", "CreateUtcTick", "General" -ReadCapacity 10 -WriteCapacity 10
 
         New-DDBTable -TableName $TableName `
+            -Region $Region `
             -Schema $Schema `
-            -BillingMode "PAY_PER_REQUEST" 
+            -BillingMode "PAY_PER_REQUEST" `
+            -ProfileName $ProfileName
 
         # Wait for table to become active
         Write-LzAwsVerbose "Waiting for table to become active..."
@@ -44,8 +51,10 @@ function Create-DynamoDbTable {
 
         # Enable TTL
         Update-DDBTimeToLive -TableName $TableName `
+            -Region $Region `
             -TimeToLiveSpecification_AttributeName "TTL" `
-            -TimeToLiveSpecification_Enable $true 
+            -TimeToLiveSpecification_Enable $true `
+            -ProfileName $ProfileName
 
         Write-LzAwsVerbose "Table '$TableName' created successfully."
         return ""

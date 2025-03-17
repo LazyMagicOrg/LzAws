@@ -27,6 +27,8 @@ function Deploy-WebappAws {
         [string]$ProjectName="WASMApp"
     )
     $SystemConfig = Get-SystemConfig
+    $Region = $SystemConfig.Region
+    $Account = $SystemConfig.Account      
     $ProfileName = $SystemConfig.Config.Profile
     $SystemKey = $SystemConfig.Config.SystemKey
     $SystemSuffix = $SystemConfig.Config.SystemSuffix
@@ -34,7 +36,10 @@ function Deploy-WebappAws {
     $AppPublish = Get-Content -Path "./$ProjectFolder/apppublish.json" -Raw | ConvertFrom-Json
     $AppName = $AppPublish.AppName
     $BucketName = "$SystemKey---webapp-$AppName-$SystemSuffix"
+
     Write-Host $BucketName
+
+    New-LzAwsS3Bucket -BucketName $BucketName -Region $Region -Account $Account -BucketType "WEBAPP" -ProfileName $ProfileName
 
     dotnet publish "./$ProjectFolder/$ProjectName.csproj" --configuration Release
     $ProjectXml = [xml](Get-Content "./$ProjectFolder/$ProjectName.csproj")
@@ -42,6 +47,7 @@ function Deploy-WebappAws {
     $LocalFolderPath = "./$ProjectFolder/bin/Release/$Framework/publish/wwwroot"
     $LocalFolderPath = Resolve-Path $LocalFolderPath
    
+    
     # Perform the sync operation
     $S3KeyPrefix = "wwwroot"
     $SyncCommand = "aws s3 sync `"$LocalFolderPath`" `"s3://$BucketName/$S3KeyPrefix`" --delete --profile `"$ProfileName`""

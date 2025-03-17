@@ -23,10 +23,13 @@ function Deploy-AssetsAws {
     [CmdletBinding()]
 
     $SystemConfig = Get-SystemConfig
+    $Region = $SystemConfig.Region
+    $Account = $SystemConfig.Account    
     $ProfileName = $SystemConfig.Config.Profile
 
     # Update system assets
     $BucketName = $SystemConfig.Config.SystemKey + "---assets-" + $SystemConfig.Config.SystemSuffix
+    New-LzAwsS3Bucket -BucketName $BucketName -Region $Region -Account $Account -BucketType "ASSETS" -ProfileName $ProfileName
     Write-Host "Deploying system assets to bucket: $BucketName using profile: $ProfileName"
     Update-TenantAsset "system" $BucketName $ProfileName    
 
@@ -85,6 +88,7 @@ function Deploy-AssetsAws {
                 }
 
                 $BucketName = Get-AssetName $KvsEntry $Behavior $false
+                New-LzAwsS3Bucket -BucketName $BucketName -Region $Region -Account $Account -BucketType "ASSETS" -ProfileName $ProfileName
                 Write-Host "Deploying tenant assets for project: $TenancyProject to bucket: $BucketName using profile: $ProfileName"
                 Update-TenantAsset $TenancyProject $BucketName $ProfileName
             }

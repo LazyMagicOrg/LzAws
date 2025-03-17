@@ -7,7 +7,7 @@ function New-LzAwsS3Bucket {
         [Parameter(Mandatory=$true)]
         [string]$Account,
         [Parameter(Mandatory=$true)]
-        [ValidateSet("ASSETS", "CDNLOG")] # WebApp buckets are ASSETS buckets
+        [ValidateSet("ASSETS", "CDNLOG", "WEBAPP")] # WebApp buckets are ASSETS buckets
         [string]$BucketType,
         [Parameter(Mandatory=$true)]
         [string]$ProfileName

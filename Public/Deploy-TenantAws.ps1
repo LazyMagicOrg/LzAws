@@ -78,6 +78,7 @@ function Deploy-TenantAws {
         # CFPolicyStack values
         "OriginRequestPolicyIdParameter" = $PolicyStackOutputDict["OriginRequestPolicyId"]
         "CachePolicyIdParameter" = $PolicyStackOutputDict["CachePolicyId"]
+        "CacheByHeaderPolicyIdParameter" = $PolicyStackOutputDict["CacheByHeaderPolicyId"]
         "ApiCachePolicyIdParameter" = $PolicyStackOutputDict["ApiCachePolicyId"]
         "AuthConfigFunctionArnParameter" = $PolicyStackOutputDict["AuthConfigFunctionArn"]
         "RequestFunctionArnParameter" = $PolicyStackOutputDict["RequestFunctionArn"]
