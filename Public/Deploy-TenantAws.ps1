@@ -22,78 +22,83 @@ function Deploy-TenantAws {
         [string]$TenantKey
     )
 
-    Deploy-TenantResourcesAws $TenantKey
+    try {
+        Deploy-TenantResourcesAws $TenantKey
 
-    Write-LzAwsVerbose "Deploying tenant stack"  
-    $SystemConfig = Get-SystemConfig 
-    $Config = $SystemConfig.Config
-    $Environment = $Config.Environment
-    $ProfileName = $Config.Profile
-    $SystemKey = $Config.SystemKey
-    $SystemSuffix = $Config.SystemSuffix
+        Write-LzAwsVerbose "Deploying tenant stack"  
+        $SystemConfig = Get-SystemConfig 
+        $Config = $SystemConfig.Config
+        $Environment = $Config.Environment
+        $ProfileName = $Config.Profile
+        $SystemKey = $Config.SystemKey
+        $SystemSuffix = $Config.SystemSuffix
 
-    $StackName = $Config.SystemKey + "-" + $TenantKey + "--tenant" 
-    $ArtifactsBucket = $Config.SystemKey + "---artifacts-" + $Config.SystemSuffix
+        $StackName = $Config.SystemKey + "-" + $TenantKey + "--tenant" 
+        $ArtifactsBucket = $Config.SystemKey + "---artifacts-" + $Config.SystemSuffix
 
-    $CdnLogBucketName = Get-CDNLogBucketName -SystemConfig $SystemConfig -TenantKey $TenantKey
+        $CdnLogBucketName = Get-CDNLogBucketName -SystemConfig $SystemConfig -TenantKey $TenantKey
 
-    $Tenant = $Config.Tenants[$TenantKey]
+        $Tenant = $Config.Tenants[$TenantKey]
 
-    # Validate required tenant properties
-    $RequiredProps = @('RootDomain', 'HostedZoneId', 'AcmCertificateArn')
-    foreach ($Prop in $RequiredProps) {
-        if (-not $Tenant.ContainsKey($Prop) -or [string]::IsNullOrWhiteSpace($Tenant[$Prop])) {
-            Write-Host "Missing or empty property: $Prop"
+        # Validate required tenant properties
+        $RequiredProps = @('RootDomain', 'HostedZoneId', 'AcmCertificateArn')
+        foreach ($Prop in $RequiredProps) {
+            if (-not $Tenant.ContainsKey($Prop) -or [string]::IsNullOrWhiteSpace($Tenant[$Prop])) {
+                Write-Host "Missing or empty property: $Prop"
+                return $false
+            }
+        }
+
+        $RootDomain = $Tenant.RootDomain
+        if([string]::IsNullOrWhiteSpace($RootDomain)) {
+            Write-Host "RootDomain is missing or empty."
             return $false
         }
+
+        $HostedZoneId = $Tenant.HostedZoneId
+        $AcmCertificateArn = $Tenant.AcmCertificateArn
+        $TenantSuffix = $SystemSuffix # default
+        if($Tenant.ContainsKey('TenantSuffix') -and ![string]::IsNullOrWhiteSpace($Tenant.TenantSuffix)) {
+            $TenantSuffix = $Tenant.TenantSuffix    
+        }
+
+        # Get stack outputs
+        $PolicyStackOutputDict = Get-StackOutputs ($Config.SystemKey + "---policies")
+
+        # Create the parameters dictionary
+        $ParametersDict = @{
+            # SystemConfigFile values
+            "SystemKeyParameter" = $SystemKey
+            "EnvironmentParameter" = $Environment
+            "TenantKeyParameter" = $TenantKey
+            "GuidParameter" = $TenantSuffix
+            "RootDomainParameter" = $RootDomain
+            "HostedZoneIdParameter" = $HostedZoneId
+            "AcmCertificateArnParameter" = $AcmCertificateArn
+
+            # CFPolicyStack values
+            "OriginRequestPolicyIdParameter" = $PolicyStackOutputDict["OriginRequestPolicyId"]
+            "CachePolicyIdParameter" = $PolicyStackOutputDict["CachePolicyId"]
+            "CacheByHeaderPolicyIdParameter" = $PolicyStackOutputDict["CacheByHeaderPolicyId"]
+            "ApiCachePolicyIdParameter" = $PolicyStackOutputDict["ApiCachePolicyId"]
+            "AuthConfigFunctionArnParameter" = $PolicyStackOutputDict["AuthConfigFunctionArn"]
+            "RequestFunctionArnParameter" = $PolicyStackOutputDict["RequestFunctionArn"]
+            "ApiRequestFunctionArnParameter" = $PolicyStackOutputDict["ApiRequestFunctionArn"]
+        }
+
+        # Deploy the stack using SAM CLI
+        $Parameters = ConvertTo-ParameterOverrides -parametersDict $ParametersDict
+        Write-Host "Deploying the stack $StackName" 
+        sam deploy `
+        --template-file Templates/sam.tenant.yaml `
+        --s3-bucket $ArtifactsBucket `
+        --stack-name $StackName `
+        --parameter-overrides $Parameters `
+        --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND `
+        --profile $ProfileName
+
+    } catch {
+        throw
     }
-
-    $RootDomain = $Tenant.RootDomain
-    if([string]::IsNullOrWhiteSpace($RootDomain)) {
-        Write-Host "RootDomain is missing or empty."
-        return $false
-    }
-
-    $HostedZoneId = $Tenant.HostedZoneId
-    $AcmCertificateArn = $Tenant.AcmCertificateArn
-    $TenantSuffix = $SystemSuffix # default
-    if($Tenant.ContainsKey('TenantSuffix') -and ![string]::IsNullOrWhiteSpace($Tenant.TenantSuffix)) {
-        $TenantSuffix = $Tenant.TenantSuffix    
-    }
-
-    # Get stack outputs
-    $PolicyStackOutputDict = Get-StackOutputs ($Config.SystemKey + "---policies")
-
-    # Create the parameters dictionary
-    $ParametersDict = @{
-        # SystemConfigFile values
-        "SystemKeyParameter" = $SystemKey
-        "EnvironmentParameter" = $Environment
-        "TenantKeyParameter" = $TenantKey
-        "GuidParameter" = $TenantSuffix
-        "RootDomainParameter" = $RootDomain
-        "HostedZoneIdParameter" = $HostedZoneId
-        "AcmCertificateArnParameter" = $AcmCertificateArn
-
-        # CFPolicyStack values
-        "OriginRequestPolicyIdParameter" = $PolicyStackOutputDict["OriginRequestPolicyId"]
-        "CachePolicyIdParameter" = $PolicyStackOutputDict["CachePolicyId"]
-        "CacheByHeaderPolicyIdParameter" = $PolicyStackOutputDict["CacheByHeaderPolicyId"]
-        "ApiCachePolicyIdParameter" = $PolicyStackOutputDict["ApiCachePolicyId"]
-        "AuthConfigFunctionArnParameter" = $PolicyStackOutputDict["AuthConfigFunctionArn"]
-        "RequestFunctionArnParameter" = $PolicyStackOutputDict["RequestFunctionArn"]
-        "ApiRequestFunctionArnParameter" = $PolicyStackOutputDict["ApiRequestFunctionArn"]
-    }
-
-    # Deploy the stack using SAM CLI
-    $Parameters = ConvertTo-ParameterOverrides -parametersDict $ParametersDict
-    Write-Host "Deploying the stack $StackName" 
-    sam deploy `
-    --template-file Templates/sam.tenant.yaml `
-    --s3-bucket $ArtifactsBucket `
-    --stack-name $StackName `
-    --parameter-overrides $Parameters `
-    --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND `
-    --profile $ProfileName
 }
 

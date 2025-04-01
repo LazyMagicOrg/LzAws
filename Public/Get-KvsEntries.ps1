@@ -15,19 +15,20 @@
 #>
 function Get-KvsEntries {
 
-    $SystemConfig = Get-SystemConfig 
-    $Region = $SystemConfig.Region
-    $Account = $SystemConfig.Account
-    $Config = $SystemConfig.Config
-    $ProfileName = $SystemConfig.ProfileName
-
-    Write-LzAwsVerbose "Region: $Region, Account: $Account"
-    
-   
-    $ServiceStackOutputDict = Get-StackOutputs ($Config.SystemKey + "---system")
-    $KvsArn = $ServiceStackOutputDict["KeyValueStoreArn"]
-
     try {
+
+        $SystemConfig = Get-SystemConfig 
+        $Region = $SystemConfig.Region
+        $Account = $SystemConfig.Account
+        $Config = $SystemConfig.Config
+        $ProfileName = $SystemConfig.ProfileName
+
+        Write-LzAwsVerbose "Region: $Region, Account: $Account"
+        
+    
+        $ServiceStackOutputDict = Get-StackOutputs ($Config.SystemKey + "---system")
+        $KvsArn = $ServiceStackOutputDict["KeyValueStoreArn"]
+
         # Retrieve the entire response object
         Get-CFKVKeyValueStore -KvsARN $KvsARN
 

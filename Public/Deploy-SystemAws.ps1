@@ -20,24 +20,32 @@
 function Deploy-SystemAws {
     [CmdletBinding()]
     param()    
-   
-    Deploy-SystemResourcesAws
 
-    Write-LzAwsVerbose "Deploying system stack"  
-    $SystemConfig = Get-SystemConfig 
-    $Config = $SystemConfig.Config
-    $ProfileName = $Config.Profile
-    $SystemKey = $Config.SystemKey
-    $SystemSuffix = $Config.SystemSuffix
+    Write-LzAwsVerbose "Deploy-SystemAws"
 
-    $StackName = $SystemKey + "---system"
+    try {
+        Deploy-SystemResourcesAws
 
-    # note that sam requires the --Profile be explicitly set
-    Write-LzAwsVerbose "Deploying the stack $StackName using profile $ProfileName" 
-    sam deploy `
-    --template-file Templates/sam.system.yaml `
-    --stack-name $StackName `
-    --parameter-overrides SystemKeyParameter=$SystemKey SystemSuffixParameter=$SystemSuffix `
-    --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND `
-    --profile $ProfileName
+        Write-LzAwsVerbose "Deploying system stack"  
+
+        $SystemConfig = Get-SystemConfig 
+        $Config = $SystemConfig.Config
+        $ProfileName = $Config.Profile
+        $SystemKey = $Config.SystemKey
+        $SystemSuffix = $Config.SystemSuffix
+
+        $StackName = $SystemKey + "---system"
+
+        # note that sam requires the --Profile be explicitly set
+        Write-LzAwsVerbose "Deploying the stack $StackName using profile $ProfileName" 
+        sam deploy `
+        --template-file Templates/sam.system.yaml `
+        --stack-name $StackName `
+        --parameter-overrides SystemKeyParameter=$SystemKey SystemSuffixParameter=$SystemSuffix `
+        --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND `
+        --profile $ProfileName
+    }
+    catch {
+        throw
+    }
 }

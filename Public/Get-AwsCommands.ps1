@@ -28,17 +28,22 @@ function Get-AwsCommands {
     [OutputType([System.Object[]])]
     param()
 
-    # Get all public functions from the module
-    $ModulePath = (Get-Item $PSScriptRoot).Parent.FullName
-    $Commands = Get-ChildItem -Path $PSScriptRoot -Filter "*.ps1" | ForEach-Object {
+    try {
+        # Get all public functions from the module
+        # $ModulePath = (Get-Item $PSScriptRoot).Parent.FullName
+        $Commands = Get-ChildItem -Path $PSScriptRoot -Filter "*.ps1" | ForEach-Object {
         $Content = Get-Content $_.FullName -Raw
         if ($Content -match '\.SYNOPSIS\s*\r?\n\s*([^\r\n]+)') {
             @{
                 Name = $_.BaseName
-                Synopsis = $Matches[1].Trim()
+                    Synopsis = $Matches[1].Trim()
+            }
             }
         }
-    }
 
-    return $Commands | Sort-Object Name
+        return $Commands | Sort-Object Name
+    }
+    catch {
+        throw
+    }
 } 

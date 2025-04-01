@@ -3,6 +3,67 @@
 # technique is useful in development but you may implement 
 # different tenant asset s3 bucket management strategies 
 # that don't rely on having a Tenancy solution.
+
+function New-ImageThumbnail {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourcePath,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationPath,
+        
+        [Parameter(Mandatory = $false)]
+        [int]$MaxWidth = 200,
+        
+        [Parameter(Mandatory = $false)]
+        [int]$MaxHeight = 200
+    )
+
+    try {
+        # Load System.Drawing.Common assembly
+        Add-Type -AssemblyName System.Drawing.Common
+
+        # Load the source image
+        $sourceImage = [System.Drawing.Image]::FromFile($SourcePath)
+        
+        # Calculate new dimensions maintaining aspect ratio
+        $ratioX = $MaxWidth / $sourceImage.Width
+        $ratioY = $MaxHeight / $sourceImage.Height
+        $ratio = [Math]::Min($ratioX, $ratioY)
+        
+        $newWidth = [int]($sourceImage.Width * $ratio)
+        $newHeight = [int]($sourceImage.Height * $ratio)
+
+        # Create new bitmap for thumbnail
+        $thumbnail = New-Object System.Drawing.Bitmap($newWidth, $newHeight)
+        
+        # Create graphics object and set high quality settings
+        $graphics = [System.Drawing.Graphics]::FromImage($thumbnail)
+        $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+        $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+
+        # Draw the thumbnail
+        $graphics.DrawImage($sourceImage, 0, 0, $newWidth, $newHeight)
+
+        # Save the thumbnail with high quality
+        $thumbnail.Save($DestinationPath, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+
+        # Clean up resources
+        $graphics.Dispose()
+        $thumbnail.Dispose()
+        $sourceImage.Dispose()
+
+        Write-LzAwsVerbose "Successfully generated thumbnail: $DestinationPath"
+        return $true
+    }
+    catch {
+        Write-LzAwsVerbose "Error generating thumbnail: $_"
+        return $false
+    }
+}
+
 function Update-TenantAsset {
     param(
         [Parameter(Mandatory = $true)]
@@ -64,8 +125,37 @@ function Update-TenantAsset {
                 try {
                     $Hash = Get-FileHash -Path $Asset.FullName -Algorithm SHA256
                     $RelativePath = $Asset.FullName.Substring($AssetLanguageLength + 1).Replace("\", "/")
-                    #$RelativePath = $TenancyName + "/" + $AssetLanguageName + "/" + $RelativePath
                     $RelativePath = $PathKey + "/" + $AssetLanguageName + "/" + $RelativePath
+                    
+                    # Check if this is an image file that needs a thumbnail
+                    if ($Asset.Extension -match '\.(jpg|jpeg|png)$' -and -not $Asset.Name.EndsWith('.TN.jpg')) {
+                        $thumbnailPath = [System.IO.Path]::ChangeExtension($Asset.FullName, '.TN.jpg')
+                        $shouldGenerateThumbnail = $false
+                        
+                        if (-not (Test-Path $thumbnailPath)) {
+                            $shouldGenerateThumbnail = $true
+                        }
+                        else {
+                            # Check if source image is newer than thumbnail
+                            $sourceLastWrite = (Get-Item $Asset.FullName).LastWriteTime
+                            $thumbLastWrite = (Get-Item $thumbnailPath).LastWriteTime
+                            $shouldGenerateThumbnail = $sourceLastWrite -gt $thumbLastWrite
+                        }
+
+                        if ($shouldGenerateThumbnail) {
+                            Write-LzAwsVerbose "Generating thumbnail for: $($Asset.Name)"
+                            if (New-ImageThumbnail -SourcePath $Asset.FullName -DestinationPath $thumbnailPath) {
+                                # Add thumbnail to manifest
+                                $ThumbHash = Get-FileHash -Path $thumbnailPath -Algorithm SHA256
+                                $ThumbRelativePath = [System.IO.Path]::ChangeExtension($RelativePath, '.TN.jpg')
+                                $Manifest += @{
+                                    hash = "sha256-$($ThumbHash.Hash)"
+                                    url = "$ThumbRelativePath"
+                                }
+                            }
+                        }
+                    }
+
                     $Manifest += @{
                         hash = "sha256-$($Hash.Hash)"
                         url = "$RelativePath"

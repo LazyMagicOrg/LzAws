@@ -16,26 +16,31 @@ function Deploy-TenantsAws {
     [CmdletBinding()]
     param()
     
-    # Add diagnostic output
-    $currentVerbosity = Get-LzAwsVerbosity
-    Write-Host "Current verbosity setting: $currentVerbosity"
-    
-    $SystemConfig = Get-SystemConfig
-    $Config = $SystemConfig.Config
+    try {
+        # Add diagnostic output
+        $currentVerbosity = Get-LzAwsVerbosity
+        Write-Host "Current verbosity setting: $currentVerbosity"
+        
+        $SystemConfig = Get-SystemConfig
+        $Config = $SystemConfig.Config
 
-    Write-LzAwsVerbose "Starting tenant deployments"
-    $TenantsHashTable = $Config.Tenants 
-    foreach($Item in $TenantsHashTable.GetEnumerator()) {
-        $TenantName = $Item.Key
-        Write-LzAwsVerbose "Processing tenant: $TenantName"
-        # Add more diagnostic output
-        Write-Host "Debug: Verbosity is $(Get-LzAwsVerbosity) before deploying $TenantName"
-        Write-Host "Calling Deploy-TenantAws $TenantName"
-        Deploy-TenantAws $TenantName
+        Write-LzAwsVerbose "Starting tenant deployments"
+        $TenantsHashTable = $Config.Tenants 
+        foreach($Item in $TenantsHashTable.GetEnumerator()) {
+            $TenantName = $Item.Key
+            Write-LzAwsVerbose "Processing tenant: $TenantName"
+            # Add more diagnostic output
+            Write-Host "Debug: Verbosity is $(Get-LzAwsVerbosity) before deploying $TenantName"
+            Write-Host "Calling Deploy-TenantAws $TenantName"
+            Deploy-TenantAws $TenantName
+        }
+        Write-LzAwsVerbose "Finished tenant deployments"
+        
+        # Final diagnostic check
+        Write-Host "Final verbosity setting: $(Get-LzAwsVerbosity)"
     }
-    Write-LzAwsVerbose "Finished tenant deployments"
-    
-    # Final diagnostic check
-    Write-Host "Final verbosity setting: $(Get-LzAwsVerbosity)"
+    catch {
+        throw
+    }
 }
 

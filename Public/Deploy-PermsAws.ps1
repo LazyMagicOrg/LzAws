@@ -19,68 +19,73 @@
 function Deploy-PermsAws {
     [CmdletBinding()]
     param()    
-   
-    Deploy-SystemResourcesAws
+    try {
 
-    Write-LzAwsVerbose "Deploying perms stack"  
-    $SystemConfig = Get-SystemConfig 
-    $Config = $SystemConfig.Config
-    $ProfileName = $Config.Profile
-    $SystemKey = $Config.SystemKey
-    $Environment = $Config.Environment
-    $SystemSuffix = $Config.SystemSuffix
+        Deploy-SystemResourcesAws
 
-    $StackName = $SystemKey + "---perms"
+        Write-LzAwsVerbose "Deploying perms stack"  
+        $SystemConfig = Get-SystemConfig 
+        $Config = $SystemConfig.Config
+        $ProfileName = $Config.Profile
+        $SystemKey = $Config.SystemKey
+        $Environment = $Config.Environment
+        $SystemSuffix = $Config.SystemSuffix
 
-    $SystemStackName = $SystemKey + "---system"
+        $StackName = $SystemKey + "---perms"
 
-    $SystemStackOutputs = Get-StackOutputs $SystemStackName
+        $SystemStackName = $SystemKey + "---system"
 
-	# Build parameters for stack deployment
-	$ParametersDict = @{
-		"SystemKeyParameter" = $SystemKey
-		"EnvironmentParameter" = $Environment
-		"SystemSuffixParameter" = $SystemSuffix	
-        "KeyValueStoreArnParameter" = $SystemStackOutputs["KeyValueStoreArn"]	
-	}
+        $SystemStackOutputs = Get-StackOutputs $SystemStackName
 
-    $ServiceStackName = $SystemKey + "---service"
-    $ServiceStackOutputs = Get-StackOutputs $ServiceStackName
-    $ServiceStackOutputs.GetEnumerator() | Sort-Object Key | ForEach-Object{
-        $Key = $_.Key + "Parameter"
-        $Value = $_.Value
-        $ParametersDict.Add($Key, $Value)
+        # Build parameters for stack deployment
+        $ParametersDict = @{
+            "SystemKeyParameter" = $SystemKey
+            "EnvironmentParameter" = $Environment
+            "SystemSuffixParameter" = $SystemSuffix	
+            "KeyValueStoreArnParameter" = $SystemStackOutputs["KeyValueStoreArn"]	
+        }
+
+        $ServiceStackName = $SystemKey + "---service"
+        $ServiceStackOutputs = Get-StackOutputs $ServiceStackName
+        $ServiceStackOutputs.GetEnumerator() | Sort-Object Key | ForEach-Object{
+            $Key = $_.Key + "Parameter"
+            $Value = $_.Value
+            $ParametersDict.Add($Key, $Value)
+        }
+
+        if(-not (Test-Path -Path "./Generated/deploymentconfig.g.yaml" -PathType Leaf)) {
+            throw "deploymentconfig.yaml does not exist."
+        }
+
+        $DeploymentConfig = Get-Content -Path "./Generated/deploymentconfig.g.yaml" | ConvertFrom-Yaml
+        $Authentications = $DeploymentConfig.Authentications
+
+        # Generate the authenticator parameters
+        foreach($Authentication in $Authentications) {
+            $Name = $Authentication.Name
+            $AuthStackName = $Config.SystemKey + "---" + $Name
+            $AuthStackOutputs = Get-StackOutputs $AuthStackName
+            Write-Host "Processing auth stack: $AuthStackName"
+            $ParametersDict.Add($Name + "UserPoolIdParameter", $AuthStackOutputs["UserPoolId"])
+            $ParametersDict.Add($Name + "UserPoolClientIdParameter", $AuthStackOutputs["UserPoolClientId"])
+            $ParametersDict.Add($Name + "IdentityPoolIdParameter", $AuthStackOutputs["IdentityPoolId"])
+            $ParametersDict.Add($Name + "SecurityLevelParameter", $AuthStackOutputs["SecurityLevel"])
+            $ParametersDict.Add($Name + "UserPoolArnParameter", $AuthStackOutputs["UserPoolArn"])
+        }  
+
+        # Write-OutputDictionary $ParametersDict
+
+        $Parameters = ConvertTo-ParameterOverrides -parametersDict $ParametersDict
+        # note that sam requires the --Profile be explicitly set
+        Write-LzAwsVerbose "Deploying the stack $StackName using profile $ProfileName" 
+        sam deploy `
+        --template-file Templates/sam.perms.yaml `
+        --stack-name $StackName `
+        --parameter-overrides $Parameters `
+        --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND `
+        --profile $ProfileName
+    } 
+    catch {
+        throw
     }
-
-    if(-not (Test-Path -Path "./Generated/deploymentconfig.g.yaml" -PathType Leaf)) {
-        throw "deploymentconfig.yaml does not exist."
-    }
-
-    $DeploymentConfig = Get-Content -Path "./Generated/deploymentconfig.g.yaml" | ConvertFrom-Yaml
-	$Authentications = $DeploymentConfig.Authentications
-
-    # Generate the authenticator parameters
-    foreach($Authentication in $Authentications) {
-		$Name = $Authentication.Name
-        $AuthStackName = $Config.SystemKey + "---" + $Name
-        $AuthStackOutputs = Get-StackOutputs $AuthStackName
-		Write-Host "Processing auth stack: $AuthStackName"
-		$ParametersDict.Add($Name + "UserPoolIdParameter", $AuthStackOutputs["UserPoolId"])
-		$ParametersDict.Add($Name + "UserPoolClientIdParameter", $AuthStackOutputs["UserPoolClientId"])
-		$ParametersDict.Add($Name + "IdentityPoolIdParameter", $AuthStackOutputs["IdentityPoolId"])
-		$ParametersDict.Add($Name + "SecurityLevelParameter", $AuthStackOutputs["SecurityLevel"])
-		$ParametersDict.Add($Name + "UserPoolArnParameter", $AuthStackOutputs["UserPoolArn"])
-    }  
-
-    # Write-OutputDictionary $ParametersDict
-
-    $Parameters = ConvertTo-ParameterOverrides -parametersDict $ParametersDict
-    # note that sam requires the --Profile be explicitly set
-    Write-LzAwsVerbose "Deploying the stack $StackName using profile $ProfileName" 
-    sam deploy `
-    --template-file Templates/sam.perms.yaml `
-    --stack-name $StackName `
-    --parameter-overrides $Parameters `
-    --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND `
-    --profile $ProfileName
 }

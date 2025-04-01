@@ -27,26 +27,31 @@ function Deploy-PoliciesAws {
     # Setup
     
     Write-LzAwsVerbose "Deploying CloudFront Policies and Functions stack"  
-    $SystemConfig = Get-SystemConfig # find and load the systemconfig.yaml file
-    $Config = $SystemConfig.Config
-    $ProfileName = $Config.Profile
-    $SystemKey = $Config.SystemKey
-    $Environment = $Config.Environment
+    try {
+        $SystemConfig = Get-SystemConfig # find and load the systemconfig.yaml file
+        $Config = $SystemConfig.Config
+        $ProfileName = $Config.Profile
+        $SystemKey = $Config.SystemKey
+        $Environment = $Config.Environment
 
-    $StackName = $SystemKey + "---policies" 
+        $StackName = $SystemKey + "---policies" 
 
-    # Get system stack outputs
-    $SystemStack = $Config.SystemKey + "---system"
-    $SystemStackOutputDict = Get-StackOutputs $SystemStack
-    $KeyValueStoreArn = $SystemStackOutputDict["KeyValueStoreArn"]
+        # Get system stack outputs
+        $SystemStack = $Config.SystemKey + "---system"
+        $SystemStackOutputDict = Get-StackOutputs $SystemStack
+        $KeyValueStoreArn = $SystemStackOutputDict["KeyValueStoreArn"]
 
-    Write-LzAwsVerbose "Deploying the stack $StackName" 
+        Write-LzAwsVerbose "Deploying the stack $StackName" 
 
-    # Note that sam requires we explicitly set the --profile	
-    sam deploy `
-    --template-file Templates/sam.policies.yaml `
-    --stack-name $StackName `
-    --parameter-overrides SystemKey=$SystemKey  EnvironmentParameter=$Environment KeyValueStoreArnParameter=$KeyValueStoreArn `
-    --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND `
-    --profile $ProfileName 
+        # Note that sam requires we explicitly set the --profile	
+        sam deploy `
+        --template-file Templates/sam.policies.yaml `
+        --stack-name $StackName `
+        --parameter-overrides SystemKey=$SystemKey  EnvironmentParameter=$Environment KeyValueStoreArnParameter=$KeyValueStoreArn `
+        --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND `
+        --profile $ProfileName 
+    }
+    catch {
+        throw
+    }
 }
