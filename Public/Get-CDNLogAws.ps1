@@ -36,11 +36,15 @@ function Get-CDNLogAws {
     )
 
     try {
-        # Load configuration from YAML file
-        $SystemConfig = Get-SystemConfig
-        $Config = $SystemConfig.Config
+        Get-SystemConfig # sets script scopevariables
+        $Region = $script:Region
+        $Account = $script:Account    
+        $ProfileName = $script:ProfileName
+        $Config = $script:Config
+
+        $Config = $script:Config
+
         $SystemSuffix = $Config.SystemSuffix
-        $ProfileName = $Config.Profile
         $SystemKey = $Config.SystemKey
 
         $BucketName = $SystemKey + "-" + $TenantKey + "--cdnlog-" + $SystemSuffix
@@ -130,7 +134,7 @@ function Get-CDNLogAws {
         # Download the compressed file
         $TempCompressedFile = [System.IO.Path]::GetTempFileName()
         Write-Verbose "Downloading log file to: $TempCompressedFile"
-        Read-S3Object -BucketName $BucketName -Key $LatestFile.Key -File $TempCompressedFile -ProfileName $ProfileName
+        $null = Read-S3Object -BucketName $BucketName -Key $LatestFile.Key -File $TempCompressedFile -ProfileName $ProfileName
 
         try {
             # Decompress the file

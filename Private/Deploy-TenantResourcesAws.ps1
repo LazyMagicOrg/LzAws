@@ -12,11 +12,10 @@ function Deploy-TenantResourcesAws {
     )
 
     try {
-        $SystemConfig = Get-SystemConfig 
-        $Region = $SystemConfig.Region
-        $Account = $SystemConfig.Account
-        $Config = $SystemConfig.Config
-        $ProfileName = $SystemConfig.ProfileName
+        $Region = $script:Region
+        $Account = $script:Account
+        $ProfileName = $script:ProfileName
+        $Config = $script:Config
 
         Write-LzAwsVerbose "Region: $Region, Account: $Account"
         

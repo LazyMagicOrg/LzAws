@@ -29,6 +29,7 @@ function Get-AwsCommands {
     param()
 
     try {
+
         # Get all public functions from the module
         # $ModulePath = (Get-Item $PSScriptRoot).Parent.FullName
         $Commands = Get-ChildItem -Path $PSScriptRoot -Filter "*.ps1" | ForEach-Object {

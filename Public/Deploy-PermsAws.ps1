@@ -20,13 +20,15 @@ function Deploy-PermsAws {
     [CmdletBinding()]
     param()    
     try {
+        Get-SystemConfig # sets script scopevariables
+        $Region = $script:Region
+        $Account = $script:Account    
+        $ProfileName = $script:ProfileName
+        $Config = $script:Config
 
         Deploy-SystemResourcesAws
 
         Write-LzAwsVerbose "Deploying perms stack"  
-        $SystemConfig = Get-SystemConfig 
-        $Config = $SystemConfig.Config
-        $ProfileName = $Config.Profile
         $SystemKey = $Config.SystemKey
         $Environment = $Config.Environment
         $SystemSuffix = $Config.SystemSuffix

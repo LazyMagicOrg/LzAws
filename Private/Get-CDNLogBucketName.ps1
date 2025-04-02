@@ -1,12 +1,10 @@
 function Get-CDNLogBucketName {
     param(
         [Parameter(Mandatory=$true)]
-        [PSCustomObject]$SystemConfig,
-        [Parameter(Mandatory=$true)]
         [string]$TenantKey
     )
 
-    $Config = $SystemConfig.Config
+    $Config = $script:Config
     $SystemKey = $Config.SystemKey
     $SystemSuffix = $Config.SystemSuffix
     $Tenant = $Config.Tenants[$TenantKey]

@@ -30,6 +30,13 @@ function Get-PublishFolderPath {
         [string]$ProjectName
     )
 
+    # Call Get-SystemConfig but discard its output
+    $null = Get-SystemConfig # sets script scopevariables
+    $Region = $script:Region
+    $Account = $script:Account    
+    $ProfileName = $script:ProfileName
+    $Config = $script:Config
+
     # First try to find the .csproj file
     $csprojPath = Join-Path $ProjectFolder "$ProjectName.csproj"
     if (-not (Test-Path $csprojPath)) {
@@ -49,27 +56,31 @@ function Get-PublishFolderPath {
     }
 
     # Find the most recently modified publish/wwwroot folder
-    $publishPaths = $frameworkDirs | ForEach-Object {
-        $publishPath = Join-Path $_.FullName "publish\wwwroot"
+    $mostRecentPath = $null
+    $mostRecentTime = [DateTime]::MinValue
+
+    foreach ($dir in $frameworkDirs) {
+        $publishPath = Join-Path $dir.FullName "publish\wwwroot"
         if (Test-Path $publishPath) {
-            [PSCustomObject]@{
-                Path = $publishPath
-                LastWriteTime = (Get-Item $publishPath).LastWriteTime
-                Framework = $_.Name
+            $lastWriteTime = (Get-Item $publishPath).LastWriteTime
+            if ($lastWriteTime -gt $mostRecentTime) {
+                $mostRecentTime = $lastWriteTime
+                $mostRecentPath = $publishPath
             }
         }
-    } | Where-Object { $_ -ne $null }
+    }
 
-    if (-not $publishPaths) {
+    if (-not $mostRecentPath) {
         throw "No valid publish directories found in any framework folder"
     }
 
-    # Get the most recently modified publish folder
-    $mostRecent = $publishPaths | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    Write-LzAwsVerbose "Found framework: $($mostRecent.Framework)"
-    Write-LzAwsVerbose "Using most recent publish folder from: $($mostRecent.LastWriteTime)"
+    Write-LzAwsVerbose "Using most recent publish folder from: $mostRecentTime"
 
-    return (Resolve-Path $mostRecent.Path).Path
+    # Get the resolved path and ensure it's a string
+    $resolvedPath = (Resolve-Path $mostRecentPath).Path
+    Write-Debug "Resolved path type: $($resolvedPath.GetType().FullName)"
+    Write-Debug "Resolved path value: $resolvedPath"
+    return $resolvedPath
 }
 
 function Deploy-WebappAws {
@@ -79,12 +90,14 @@ function Deploy-WebappAws {
         [string]$ProjectName="WASMApp"
     )
     try {
-        $SystemConfig = Get-SystemConfig
-        $Region = $SystemConfig.Region
-        $Account = $SystemConfig.Account      
-        $ProfileName = $SystemConfig.Config.Profile
-        $SystemKey = $SystemConfig.Config.SystemKey
-        $SystemSuffix = $SystemConfig.Config.SystemSuffix
+        Get-SystemConfig # sets script scopevariables
+        $Region = $script:Region
+        $Account = $script:Account    
+        $ProfileName = $script:ProfileName
+        $Config = $script:Config
+
+        $SystemKey = $Config.SystemKey
+        $SystemSuffix = $Config.SystemSuffix
         
         $AppPublish = Get-Content -Path "./$ProjectFolder/apppublish.json" -Raw | ConvertFrom-Json
         $AppName = $AppPublish.AppName
@@ -100,6 +113,8 @@ function Deploy-WebappAws {
         
         # Get the publish folder path using our new function
         $LocalFolderPath = Get-PublishFolderPath -ProjectFolder "./$ProjectFolder" -ProjectName $ProjectName
+        Write-Debug "LocalFolderPath type: $($LocalFolderPath.GetType().FullName)"
+        Write-Debug "LocalFolderPath value: $LocalFolderPath"
         Write-LzAwsVerbose "Using publish folder: $LocalFolderPath"
         
         # Perform the sync operation

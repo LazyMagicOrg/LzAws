@@ -8,11 +8,10 @@ function Deploy-SystemResourcesAws {
         [switch]$ReportOnly
     )
     try {
-        $SystemConfig = Get-SystemConfig
-        $Config = $SystemConfig.Config
-        $Region = $SystemConfig.Region
-        $Account = $SystemConfig.Account
-        $ProfileName = $SystemConfig.ProfileName
+        $Config = $script:Config
+        $Region = $script:Region
+        $Account = $script:Account
+        $ProfileName = $script:ProfileName
 
         Write-LzAwsVerbose "Region: $Region, Account: $Account"
 

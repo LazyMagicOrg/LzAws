@@ -23,20 +23,21 @@ function Deploy-AssetsAws {
 
 
     try {
-        $SystemConfig = Get-SystemConfig
-        $Region = $SystemConfig.Region
-        $Account = $SystemConfig.Account    
-        $ProfileName = $SystemConfig.Config.Profile
+        Get-SystemConfig # sets script scopevariables
+        $Region = $script:Region
+        $Account = $script:Account    
+        $ProfileName = $script:ProfileName
+        $Config = $script:Config
 
         # Update system assets
-        $BucketName = $SystemConfig.Config.SystemKey + "---assets-" + $SystemConfig.Config.SystemSuffix
+        $BucketName = $Config.SystemKey + "---assets-" + $Config.SystemSuffix
         New-LzAwsS3Bucket -BucketName $BucketName -Region $Region -Account $Account -BucketType "ASSETS" -ProfileName $ProfileName
         Write-Host "Deploying system assets to bucket: $BucketName using profile: $ProfileName"
         Update-TenantAsset "system" $BucketName $ProfileName    
 
         # Update tenant assets
         Write-Host "Processing tenant configurations..."
-        $Tenants = $SystemConfig.Config.Tenants
+        $Tenants = $Config.Tenants
         foreach($TenantKey in $Tenants.Keys) {
             Write-Host "Processing tenant: $TenantKey"
             $TenantConfigJson = Get-TenantConfig $TenantKey

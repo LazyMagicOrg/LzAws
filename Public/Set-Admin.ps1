@@ -19,10 +19,12 @@ function Set-Admin {
     [CmdletBinding()]
     param()	
 	Write-LzAwsVerbose "Deploying Authentication stack(s)"  
-	$SystemConfig = Get-SystemConfig 
+    Get-SystemConfig # sets script scopevariables
+    $Region = $script:Region
+    $Account = $script:Account    
+    $ProfileName = $script:ProfileName
+    $Config = $script:Config
 
-	$Config = $SystemConfig.Config
-	$ProfileName = $Config.Profile
 	$SystemKey = $Config.SystemKey
     $AdminAuth = $Config.AdminAuth
     $AdminEmail = $Config.AdminEmail

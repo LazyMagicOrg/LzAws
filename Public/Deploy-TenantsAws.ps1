@@ -17,12 +17,12 @@ function Deploy-TenantsAws {
     param()
     
     try {
-        # Add diagnostic output
-        $currentVerbosity = Get-LzAwsVerbosity
-        Write-Host "Current verbosity setting: $currentVerbosity"
-        
-        $SystemConfig = Get-SystemConfig
-        $Config = $SystemConfig.Config
+        Get-SystemConfig # sets script scopevariables
+        $Region = $script:Region
+        $Account = $script:Account    
+        $ProfileName = $script:ProfileName
+        $Config = $script:Config
+       
 
         Write-LzAwsVerbose "Starting tenant deployments"
         $TenantsHashTable = $Config.Tenants 

@@ -39,7 +39,7 @@ function New-LzAwsS3Bucket {
                     --profile $ProfileName
             } else {
                 # For other bucket types, use PowerShell cmdlet
-                New-S3Bucket -BucketName $CleanBucketName -Region $Region -ErrorAction Stop
+                $null = New-S3Bucket -BucketName $CleanBucketName -Region $Region -ErrorAction Stop
             }
         
             # Verify bucket was created
@@ -121,7 +121,7 @@ function New-LzAwsS3Bucket {
         # Apply bucket policy
         Write-LzAwsVerbose "Applying bucket policy..."
         try {
-            Write-S3BucketPolicy -BucketName $CleanBucketName -Policy $PolicyJson
+            $null = Write-S3BucketPolicy -BucketName $CleanBucketName -Policy $PolicyJson
         }
         catch {
             Write-Error "Failed to apply bucket policy: $_"

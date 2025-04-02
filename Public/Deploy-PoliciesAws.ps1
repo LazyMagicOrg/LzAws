@@ -28,12 +28,13 @@ function Deploy-PoliciesAws {
     
     Write-LzAwsVerbose "Deploying CloudFront Policies and Functions stack"  
     try {
-        $SystemConfig = Get-SystemConfig # find and load the systemconfig.yaml file
-        $Config = $SystemConfig.Config
-        $ProfileName = $Config.Profile
+        Get-SystemConfig # sets script scopevariables
+        $Region = $script:Region
+        $Account = $script:Account    
+        $ProfileName = $script:ProfileName
+        $Config = $script:Config
         $SystemKey = $Config.SystemKey
         $Environment = $Config.Environment
-
         $StackName = $SystemKey + "---policies" 
 
         # Get system stack outputs

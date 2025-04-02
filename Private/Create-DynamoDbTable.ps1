@@ -5,10 +5,8 @@ function Create-DynamoDbTable {
         [string]$TableName
     )
     try {
-
-        $SystemConfig = Get-SystemConfig 
-        $Region = $SystemConfig.Region
-        $ProfileName = $SystemConfig.ProfileName
+        $Region = $script:Region
+        $ProfileName = $script:ProfileName
 
         # Check if table exists
         try {
@@ -36,7 +34,7 @@ function Create-DynamoDbTable {
         $Schema | Add-DDBIndexSchema -IndexName "PK-SK5-Index" -RangeKeyName "SK5" -RangeKeyDataType "S" -ProjectionType "include" -NonKeyAttribute "Status", "UpdateUtcTick", "CreateUtcTick", "General"
         # $Schema | Add-DDBIndexSchema -Global -IndexName "GSI1" -HashKeyName "GSI1PK" -RangeKeyName "GSI1SK" -RangeKeyDataType "S" -ProjectionType "include" -NonKeyAttribute "Status", "UpdateUtcTick", "CreateUtcTick", "General" -ReadCapacity 10 -WriteCapacity 10
 
-        New-DDBTable -TableName $TableName `
+        $null = New-DDBTable -TableName $TableName `
             -Region $Region `
             -Schema $Schema `
             -BillingMode "PAY_PER_REQUEST" `
@@ -46,11 +44,11 @@ function Create-DynamoDbTable {
         Write-LzAwsVerbose "Waiting for table to become active..."
         do {
             Start-Sleep -Seconds 5
-            $TableStatus = (Get-DDBTable -TableName $TableName).TableStatus
+            $TableStatus = (Get-DDBTable -TableName $TableName -Region $Region).TableStatus
         } while ($TableStatus -ne "ACTIVE")
 
         # Enable TTL
-        Update-DDBTimeToLive -TableName $TableName `
+        $null = Update-DDBTimeToLive -TableName $TableName `
             -Region $Region `
             -TimeToLiveSpecification_AttributeName "TTL" `
             -TimeToLiveSpecification_Enable $true `

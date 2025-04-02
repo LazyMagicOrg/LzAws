@@ -31,9 +31,8 @@ function Get-TenantConfig {
     
     Write-LzAwsVerbose "Generating kvs entries for tenant $TenantKey"  
 
-    $SystemConfig = Get-SystemConfig 
-    $Config = $SystemConfig.Config
-    $Region = $SystemConfig.Region
+    $Config = $script:Config
+    $Region = $script:Region
     $SystemKey = $Config.SystemKey
     $SystemSuffix = $Config.SystemSuffix
     $Behaviors = $Config.Behaviors

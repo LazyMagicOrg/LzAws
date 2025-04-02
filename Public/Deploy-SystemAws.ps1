@@ -24,13 +24,16 @@ function Deploy-SystemAws {
     Write-LzAwsVerbose "Deploy-SystemAws"
 
     try {
+        Get-SystemConfig # sets script scopevariables
+        $Region = $script:Region
+        $Account = $script:Account    
+        $ProfileName = $script:ProfileName
+        $Config = $script:Config
+
         Deploy-SystemResourcesAws
 
         Write-LzAwsVerbose "Deploying system stack"  
 
-        $SystemConfig = Get-SystemConfig 
-        $Config = $SystemConfig.Config
-        $ProfileName = $Config.Profile
         $SystemKey = $Config.SystemKey
         $SystemSuffix = $Config.SystemSuffix
 
@@ -38,6 +41,7 @@ function Deploy-SystemAws {
 
         # note that sam requires the --Profile be explicitly set
         Write-LzAwsVerbose "Deploying the stack $StackName using profile $ProfileName" 
+        Write-Host "Deploying the stack $StackName using profile $ProfileName" 
         sam deploy `
         --template-file Templates/sam.system.yaml `
         --stack-name $StackName `

@@ -25,15 +25,15 @@ function Deploy-ServiceAws {
     param()	
 	Write-LzAwsVerbose "Deploying system artifacts stack"  
 	try {
-		$SystemConfig = Get-SystemConfig 
-		$Config = $SystemConfig.Config
-		$Environment = $Config.Environment
-		$ProfileName = $Config.Profile
+        Get-SystemConfig # sets script scopevariables
+        $Region = $script:Region
+        $Account = $script:Account    
+        $ProfileName = $script:ProfileName
+        $Config = $script:Config
 		$SystemKey = $Config.SystemKey
+		$Environment = $Config.Environment	
 		$SystemSuffix = $Config.SystemSuffix
-
 		$StackName = $Config.SystemKey + "---service"
-
 		$ArtifactsBucket = $Config.SystemKey + "---artifacts-" + $Config.SystemSuffix
 
 		# Removing existing s3 artifacts files. DON'T do this in a test or prod environment! Deployed Lambda starts would fail.

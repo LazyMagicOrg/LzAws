@@ -17,15 +17,14 @@ function Deploy-AuthsAws {
     param()	
 	Write-LzAwsVerbose "Deploying Authentication stack(s)"  
     try {
-        $SystemConfig = Get-SystemConfig 
-        $AdminAuth = $SystemConfig.AdminAuth
+        Get-SystemConfig # sets script scopevariables
+        $Region = $script:Region
+        $Account = $script:Account    
+        $ProfileName = $script:ProfileName
+        $Config = $script:Config
+        $AdminAuth = $Config.AdminAuth
         $AdminEmail = $AdminAuth.Email
-
-        $Config = $SystemConfig.Config
-        $ProfileName = $Config.Profile
         $SystemKey = $Config.SystemKey
-
-        $Region = $SystemConfig.Region
         $ArtifactsBucket = $Config.SystemKey + "---artifacts-" + $Config.SystemSuffix
 
         # Verify required folders and files exist

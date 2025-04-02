@@ -21,9 +21,9 @@ function Get-SystemConfig {
 	Write-LzAwsVerbose "Setting profile to $ProfileName"
 
 	try {
-		Set-AWSCredential -ProfileName $ProfileName -Scope Global
+		$null = Set-AWSCredential -ProfileName $ProfileName -Scope Global
 	} catch {
-		throw "Failed to set profile to $ProfileName"
+		throw "Failed to set AWS Profile to $ProfileName"
 	}
 
 	# Load System level configuration properties we process
@@ -34,5 +34,16 @@ function Get-SystemConfig {
 		Region = $CurrentProfile.region
 		ProfileName = $ProfileName
 	}
+
+	# Create module level variables for use in other module functions called after this function
+	$script:Config = $Config
+	$script:Account = $CurrentProfile.accountId
+	$script:Region = $CurrentProfile.region
+	$script:ProfileName = $ProfileName
+
+	if($Config.Region -ne $CurrentProfile.region) {
+		throw "Region mismatch: $($Config.Region) != $($CurrentProfile.region) Current AWS Profile region must be $($Config.Region)."
+	}	
+
 	return $Value
 }

@@ -23,11 +23,15 @@ function Deploy-TenantAws {
     )
 
     try {
+        Get-SystemConfig # sets script scopevariables
+        $Region = $script:Region
+        $Account = $script:Account    
+        $ProfileName = $script:ProfileName
+        $Config = $script:Config
+
         Deploy-TenantResourcesAws $TenantKey
 
         Write-LzAwsVerbose "Deploying tenant stack"  
-        $SystemConfig = Get-SystemConfig 
-        $Config = $SystemConfig.Config
         $Environment = $Config.Environment
         $ProfileName = $Config.Profile
         $SystemKey = $Config.SystemKey
@@ -36,7 +40,7 @@ function Deploy-TenantAws {
         $StackName = $Config.SystemKey + "-" + $TenantKey + "--tenant" 
         $ArtifactsBucket = $Config.SystemKey + "---artifacts-" + $Config.SystemSuffix
 
-        $CdnLogBucketName = Get-CDNLogBucketName -SystemConfig $SystemConfig -TenantKey $TenantKey
+        $CdnLogBucketName = Get-CDNLogBucketName -TenantKey $TenantKey
 
         $Tenant = $Config.Tenants[$TenantKey]
 

@@ -4,8 +4,12 @@ function Test-S3BucketExists {
     )
     
     try {
+        $ProfileName = $script:ProfileName
+        $Region = $script:Region
+
+
         # Try to get just this specific bucket
-        $Null = Get-S3BucketLocation -BucketName $BucketName -ErrorAction SilentlyContinue
+        $null = Get-S3BucketLocation -BucketName $BucketName -ErrorAction SilentlyContinue -ProfileName $ProfileName -Region $Region
         return $true
     }
     catch {
