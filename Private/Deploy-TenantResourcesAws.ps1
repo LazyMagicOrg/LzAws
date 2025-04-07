@@ -22,16 +22,30 @@ function Deploy-TenantResourcesAws {
         
         # Validate tenant exists in config
         if(-not $Config.Tenants.ContainsKey($TenantKey)) {
-            Write-Error "The tenant key $TenantKey is not defined in the SystemConfig.yaml file."
-            return
+            Write-Host "Error: Tenant '$TenantKey' not found in configuration"
+            Write-Host "Hints:"
+            Write-Host "  - Check if the tenant key is correct"
+            Write-Host "  - Verify the tenant is defined in systemconfig.yaml"
+            Write-Host "  - Ensure you're using the correct system configuration"
+            Write-Error "Tenant '$TenantKey' not found in configuration" -ErrorAction Stop
         }
 
         # Get tenant config and KVS ARN
-        $KvsEntriesJson = Get-TenantConfig $TenantKey 
-        $KvsEntries = ConvertFrom-Json $KvsEntriesJson -Depth 10
+        try {
+            $KvsEntriesJson = Get-TenantConfig $TenantKey 
+            $KvsEntries = ConvertFrom-Json $KvsEntriesJson -Depth 10
 
-        $ServiceStackOutputDict = Get-StackOutputs ($Config.SystemKey + "---system")
-        $KvsArn = $ServiceStackOutputDict["KeyValueStoreArn"]
+            $ServiceStackOutputDict = Get-StackOutputs ($Config.SystemKey + "---system")
+            $KvsArn = $ServiceStackOutputDict["KeyValueStoreArn"]
+        }
+        catch {
+            Write-Host "Error: Failed to load tenant configuration for '$TenantKey'"
+            Write-Host "Hints:"
+            Write-Host "  - Check if the tenant configuration exists"
+            Write-Host "  - Verify the system stack is deployed"
+            Write-Host "  - Ensure the KeyValueStore is properly configured"
+            Write-Error "Failed to load tenant configuration for '$TenantKey': $($_.Exception.Message)" -ErrorAction Stop
+        }
 
         # Process each domain in tenant config
         foreach($Property in $KvsEntries.PSObject.Properties) {
@@ -51,7 +65,17 @@ function Deploy-TenantResourcesAws {
                     Write-Host "   $AssetName"
                 } else { 
                     Write-LzAwsVerbose "   $AssetName"
-                    New-LzAwsS3Bucket -BucketName $AssetName -Region $Region -Account $Account -BucketType "ASSETS" -ProfileName $ProfileName
+                    try {
+                        New-LzAwsS3Bucket -BucketName $AssetName -Region $Region -Account $Account -BucketType "ASSETS" -ProfileName $ProfileName
+                    }
+                    catch {
+                        Write-Host "Error: Failed to create assets bucket '$AssetName' for tenant '$TenantKey'"
+                        Write-Host "Hints:"
+                        Write-Host "  - Check if you have sufficient AWS permissions"
+                        Write-Host "  - Verify the bucket name is unique in your AWS account"
+                        Write-Host "  - Ensure the region is valid and accessible"
+                        Write-Error "Failed to create assets bucket '$AssetName' for tenant '$TenantKey': $($_.Exception.Message)" -ErrorAction Stop
+                    }
                 }
             }
 
@@ -64,7 +88,17 @@ function Deploy-TenantResourcesAws {
                 Write-Host "Creating DynamoDB table $TableName"
             } else {
                 Write-LzAwsVerbose "Creating DynamoDB table $TableName"
-                Create-DynamoDbTable -TableName $TableName
+                try {
+                    Create-DynamoDbTable -TableName $TableName
+                }
+                catch {
+                    Write-Host "Error: Failed to create DynamoDB table '$TableName' for tenant '$TenantKey'"
+                    Write-Host "Hints:"
+                    Write-Host "  - Check if you have sufficient AWS permissions"
+                    Write-Host "  - Verify the table name is unique in your AWS account"
+                    Write-Host "  - Ensure the region is valid and accessible"
+                    Write-Error "Failed to create DynamoDB table '$TableName' for tenant '$TenantKey': $($_.Exception.Message)" -ErrorAction Stop
+                }
             }
 
             # Update KVS entry
@@ -75,14 +109,22 @@ function Deploy-TenantResourcesAws {
                 Write-Host "Creating KVS entry for: $Domain"
                 Write-Host ($KvsEntryJson | ConvertFrom-Json -Depth 10)
             } else {
-                Update-KVSEntry -KvsARN $KvsArn -Key $Domain -Value $KvsEntryJson
+                try {
+                    Update-KVSEntry -KvsARN $KvsArn -Key $Domain -Value $KvsEntryJson
+                }
+                catch {
+                    Write-Host "Error: Failed to update KVS entry for domain '$Domain' in tenant '$TenantKey'"
+                    Write-Host "Hints:"
+                    Write-Host "  - Check if you have sufficient AWS permissions"
+                    Write-Host "  - Verify the KVS ARN is valid"
+                    Write-Error "Failed to update KVS entry for domain '$Domain' in tenant '$TenantKey': $($_.Exception.Message)" -ErrorAction Stop
+                }
             }
         }
 
-        Write-LzAwsVerbose "Finished deploying tenant assets for tenant $TenantKey"
+        Write-LzAwsVerbose "Finished deploying tenant resources for $TenantKey"
     }
     catch {
-        Write-Error "Failed to deploy tenant resources: $($_.Exception.Message)"
-        throw
+        Write-Error "Failed to deploy tenant resources: $($_.Exception.Message)" -ErrorAction Stop
     }
 }

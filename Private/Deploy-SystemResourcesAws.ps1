@@ -4,37 +4,71 @@
 # - DynamoDB table for system
 function Deploy-SystemResourcesAws {
     [CmdletBinding()]
-    param( 
-        [switch]$ReportOnly
-    )
+    param()
+    Write-LzAwsVerbose "Starting system resources deployment"  
     try {
-        $SystemConfig = Get-SystemConfig
+        $SystemConfig = Get-SystemConfig 
+        # Get-SystemConfig already handles Write-Error -ErrorAction Stop on failure
+
         $Config = $SystemConfig.Config
-        $Region = $SystemConfig.Region
-        $Account = $SystemConfig.Account
-        $ProfileName = $SystemConfig.ProfileName
-
-        Write-LzAwsVerbose "Region: $Region, Account: $Account"
-
-        # Create the s3 buckets 
-        Write-LzAwsVerbose "Creating S3 bucket"
-        $BucketName = $Config.SystemKey + "---assets-" + $Config.SystemSuffix
-        New-LzAwsS3Bucket -BucketName $BucketName -Region $Region -Account $Account -BucketType "ASSETS" -ProfileName $ProfileName
-
-        # Create the DynamoDB table
-        $TableName = $Config.SystemKey 
-        if($ReportOnly) {
-            Write-Host "Creating DynamoDB table $TableName"
-        } else {
-            Write-LzAwsVerbose "Creating DynamoDB table $TableName"
-            Create-DynamoDbTable -TableName $TableName
+        if ($null -eq $Config) {
+            Write-Host "Error: System configuration is missing Config section"
+            Write-Host "Hints:"
+            Write-Host "  - Check if Config section exists in systemconfig.yaml"
+            Write-Host "  - Verify the configuration file structure"
+            Write-Host "  - Ensure all required configuration sections are present"
+            Write-Error "System configuration is missing Config section" -ErrorAction Stop
         }
 
-        Write-LzAwsVerbose "Finished deploying system resources"
-    }
+        $ProfileName = $Config.Profile
+        $SystemKey = $Config.SystemKey
+        $Environment = $Config.Environment
+        $SystemSuffix = $Config.SystemSuffix
 
+        $StackName = $SystemKey + "---system"
+        $ArtifactsBucket = $SystemKey + "---artifacts-" + $SystemSuffix
+
+        # Deploy the system stack
+        try {
+            Write-LzAwsVerbose "Deploying the stack $StackName using profile $ProfileName" 
+            sam deploy `
+                --template-file Templates/sam.system.yaml `
+                --s3-bucket $ArtifactsBucket `
+                --stack-name $StackName `
+                --parameter-overrides SystemKey=$SystemKey EnvironmentParameter=$Environment SystemSuffixParameter=$SystemSuffix `
+                --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND `
+                --profile $ProfileName
+
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "Error: Failed to deploy system stack"
+                Write-Host "Hints:"
+                Write-Host "  - Check AWS CloudFormation console for detailed errors"
+                Write-Host "  - Verify you have required IAM permissions"
+                Write-Host "  - Ensure the template syntax is correct"
+                Write-Host "  - Validate the parameter values"
+                Write-Error "SAM deployment failed with exit code $LASTEXITCODE" -ErrorAction Stop
+            }
+
+            Write-Host "Successfully deployed system stack" -ForegroundColor Green
+        }
+        catch {
+            Write-Host "Error: Failed to deploy system stack"
+            Write-Host "Hints:"
+            Write-Host "  - Check AWS CloudFormation console for detailed errors"
+            Write-Host "  - Verify you have required IAM permissions"
+            Write-Host "  - Ensure the template syntax is correct"
+            Write-Host "  - Validate the parameter values"
+            Write-Host "Error Details: $($_.Exception.Message)"
+            Write-Error $_.Exception.Message -ErrorAction Stop
+        }
+    }
     catch {
-        Write-Error "Failed to deploy system resources: $($_.Exception.Message)"
-        throw
+        Write-Host "Error: An unexpected error occurred during system deployment"
+        Write-Host "Hints:"
+        Write-Host "  - Check the AWS CloudFormation console for stack status"
+        Write-Host "  - Verify all required AWS services are available"
+        Write-Host "  - Review AWS CloudTrail logs for detailed error information"
+        Write-Host "Error Details: $($_.Exception.Message)"
+        Write-Error $_.Exception.Message -ErrorAction Stop
     }
 }

@@ -13,13 +13,13 @@ function Find-FileUp {
 
     while ($true) {
         # Check if the file exists in the current directory
-        $FilePath = Join-Path $CurrentPath $FileName
-        if (Test-Path $FilePath) {
+        $FilePath = Join-Path $CurrentPath $FileName -ErrorAction SilentlyContinue
+        if ($FilePath -and (Test-Path $FilePath)) {
             return $FilePath
         }
 
         # Get the parent directory
-        $ParentPath = Split-Path $CurrentPath -Parent
+        $ParentPath = Split-Path $CurrentPath -Parent -ErrorAction SilentlyContinue
 
         # If we're at the root directory and haven't found the file, return null
         if ($null -eq $ParentPath -or $CurrentPath -eq $ParentPath) {

@@ -25,9 +25,8 @@
 #>
 function Get-CDNLogAws {
     [CmdletBinding()]
-    param( 
-        [Parameter(Mandatory=$True)]
-        [ValidateNotNullOrEmpty()]
+    param(
+        [Parameter(Mandatory=$true)]
         [string]$TenantKey,
         
         [Parameter(Mandatory=$False)]
@@ -36,15 +35,33 @@ function Get-CDNLogAws {
     )
 
     try {
-        # Load configuration from YAML file
         $SystemConfig = Get-SystemConfig
         $Config = $SystemConfig.Config
-        $SystemSuffix = $Config.SystemSuffix
-        $ProfileName = $Config.Profile
-        $SystemKey = $Config.SystemKey
+        $ProfileName = $SystemConfig.ProfileName
 
-        $BucketName = $SystemKey + "-" + $TenantKey + "--cdnlog-" + $SystemSuffix
-        Write-Verbose "Processing CDN logs for bucket: $BucketName"
+        # Get the CDN log bucket name
+        try {
+            $BucketName = Get-CDNLogBucketName -SystemConfig $SystemConfig -TenantKey $TenantKey
+        }
+        catch {
+            Write-Host "Error: Failed to get CDN log bucket name for tenant '$TenantKey'"
+            Write-Host "Hints:"
+            Write-Host "  - Check if the CDN log bucket exists"
+            Write-Host "  - Verify the system stack is deployed"
+            Write-Host "  - Ensure the tenant configuration is valid"
+            Write-Host "Error Details: $($_.Exception.Message)"
+            exit 1
+        }
+
+        # Verify bucket exists
+        if (-not (Test-S3BucketExists -BucketName $BucketName)) {
+            Write-Host "Error: CDN log bucket '$BucketName' does not exist"
+            Write-Host "Hints:"
+            Write-Host "  - Check if the bucket was created successfully"
+            Write-Host "  - Verify AWS permissions for S3 operations"
+            Write-Host "  - Ensure the bucket name is correct"
+            exit 1
+        }
 
         function Convert-CloudFrontLogToCSV {
             param (
@@ -105,7 +122,12 @@ function Get-CDNLogAws {
                 }
             }
             catch {
-                Write-Error "Failed to decompress file: $_"
+                Write-Host "Error: Failed to decompress file '$Infile'"
+                Write-Host "Hints:"
+                Write-Host "  - Check if the file exists and is accessible"
+                Write-Host "  - Verify the file is not corrupted"
+                Write-Host "  - Ensure you have sufficient permissions"
+                Write-Host "Error Details: $($_.Exception.Message)"
                 throw
             }
             finally {
@@ -114,37 +136,65 @@ function Get-CDNLogAws {
                 if ($InputFile) { $InputFile.Dispose() }
             }
         
-            Write-Verbose "Successfully decompressed '$Infile' to '$Outfile'"
+            Write-LzAwsVerbose "Successfully decompressed '$Infile' to '$Outfile'"
         }
 
         # Get the latest file from the S3 bucket
-        Write-Verbose "Retrieving latest log file from S3..."
-        $LatestFile = Get-S3Object -BucketName $BucketName -ProfileName $ProfileName | 
-            Sort-Object LastModified -Descending | 
-            Select-Object -First 1
+        Write-LzAwsVerbose "Retrieving latest log file from S3..."
+        try {
+            $LatestFile = Get-S3Object -BucketName $BucketName -ProfileName $ProfileName | 
+                Sort-Object LastModified -Descending | 
+                Select-Object -First 1
 
-        if (-not $LatestFile) {
-            throw "No log files found in bucket $BucketName"
+            if (-not $LatestFile) {
+                Write-Host "Error: No log files found in bucket '$BucketName'"
+                Write-Host "Hints:"
+                Write-Host "  - Check if CloudFront is configured to write logs"
+                Write-Host "  - Verify the bucket has the correct permissions"
+                Write-Host "  - Ensure there is traffic generating logs"
+                exit 1
+            }
+        }
+        catch {
+            Write-Host "Error: Failed to retrieve log files from bucket '$BucketName'"
+            Write-Host "Hints:"
+            Write-Host "  - Check AWS permissions for S3 operations"
+            Write-Host "  - Verify the bucket exists and is accessible"
+            Write-Host "  - Ensure network connectivity to AWS"
+            Write-Host "Error Details: $($_.Exception.Message)"
+            exit 1
         }
 
         # Download the compressed file
         $TempCompressedFile = [System.IO.Path]::GetTempFileName()
-        Write-Verbose "Downloading log file to: $TempCompressedFile"
-        Read-S3Object -BucketName $BucketName -Key $LatestFile.Key -File $TempCompressedFile -ProfileName $ProfileName
+        Write-LzAwsVerbose "Downloading log file to: $TempCompressedFile"
+        try {
+            Read-S3Object -BucketName $BucketName -Key $LatestFile.Key -File $TempCompressedFile -ProfileName $ProfileName
+        }
+        catch {
+            Write-Host "Error: Failed to download log file from S3"
+            Write-Host "Hints:"
+            Write-Host "  - Check AWS permissions for S3 operations"
+            Write-Host "  - Verify the file exists in the bucket"
+            Write-Host "  - Ensure sufficient disk space"
+            Write-Host "File: $($LatestFile.Key)"
+            Write-Host "Error Details: $($_.Exception.Message)"
+            exit 1
+        }
 
         try {
             # Decompress the file
             $TempDecompressedFile = [System.IO.Path]::GetTempFileName()
-            Write-Verbose "Decompressing to: $TempDecompressedFile"
+            Write-LzAwsVerbose "Decompressing to: $TempDecompressedFile"
             Expand-GZipFile -infile $TempCompressedFile -outfile $TempDecompressedFile
 
             # Convert to CSV
-            Write-Verbose "Converting log file to CSV format..."
+            Write-LzAwsVerbose "Converting log file to CSV format..."
             $Result = Convert-CloudFrontLogToCSV -LogFilePath $TempDecompressedFile
 
             # Export to CSV file
             $OutputPath = "cloudfront_log_simplified.csv"
-            Write-Verbose "Exporting to: $OutputPath"
+            Write-LzAwsVerbose "Exporting to: $OutputPath"
             $Result.Data | Export-Csv -Path $OutputPath -NoTypeInformation
 
             Write-Host "Bucket: $($BucketName)"
@@ -152,6 +202,15 @@ function Get-CDNLogAws {
             Write-Host "Processing complete. Simplified CSV file saved to: $OutputPath"
             Write-Host "Log file version: $($Result.Version)"
             Write-Host "Fields found: $($Result.Fields -join ', ')"
+        }
+        catch {
+            Write-Host "Error: Failed to process log file"
+            Write-Host "Hints:"
+            Write-Host "  - Check if the log file is valid"
+            Write-Host "  - Verify sufficient disk space"
+            Write-Host "  - Ensure write permissions in current directory"
+            Write-Host "Error Details: $($_.Exception.Message)"
+            exit 1
         }
         finally {
             # Clean up temporary files
@@ -164,7 +223,12 @@ function Get-CDNLogAws {
         }
     }
     catch {
-        Write-Error "Failed to process CDN logs: $($_.Exception.Message)"
-        throw
+        Write-Host "Error: An unexpected error occurred while processing CDN logs"
+        Write-Host "Hints:"
+        Write-Host "  - Check AWS service status"
+        Write-Host "  - Verify tenant configuration is valid"
+        Write-Host "  - Review AWS CloudTrail logs for details"
+        Write-Host "Error Details: $($_.Exception.Message)"
+        exit 1
     }
 }

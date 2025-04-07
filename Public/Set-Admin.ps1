@@ -18,12 +18,13 @@
 function Set-Admin {
     [CmdletBinding()]
     param()	
-	Write-LzAwsVerbose "Deploying Authentication stack(s)"  
-	$SystemConfig = Get-SystemConfig 
 
-	$Config = $SystemConfig.Config
-	$ProfileName = $Config.Profile
-	$SystemKey = $Config.SystemKey
+    Write-LzAwsVerbose "Deploying Authentication stack(s)"  
+    $SystemConfig = Get-SystemConfig 
+
+    $Config = $SystemConfig.Config
+    $ProfileName = $Config.Profile
+    $SystemKey = $Config.SystemKey
     $AdminAuth = $Config.AdminAuth
     $AdminEmail = $Config.AdminEmail
 
@@ -32,7 +33,6 @@ function Set-Admin {
     Write-Host "AuthStackName: $AuthStackName"
     $StackOutputs = Get-StackOutputs $AuthStackName
     $UserPoolId = $StackOutputs["UserPoolId"]
-
 
     try {
         $getCommand = "aws cognito-idp get-user --user-pool-id $UserPoolId --username Administrator --profile $ProfileName"
@@ -52,14 +52,23 @@ function Set-Admin {
             $exitCode = $LASTEXITCODE
             
             if ($exitCode -ne 0) {
-                throw "Failed to create admin user. Error: $($result | Out-String)"
+                Write-Host "Failed to create admin user. Error: $($result | Out-String)"
+                Write-Host "Hints:"
+                Write-Host "  - Check if you have sufficient AWS permissions"
+                Write-Host "  - Verify the user pool ID is correct"
+                Write-Host "  - Ensure the admin email is valid"
+                exit 1
             }
             Write-LzAwsVerbose "Admin user created successfully"
         } else {
             Write-LzAwsVerbose "Admin user already exists"
         }
     } catch {
-        throw "Error managing admin user: $($_.Exception.Message)"
+        Write-Host "Error managing admin user: $($_.Exception.Message)"
+        Write-Host "Hints:"
+        Write-Host "  - Check if you have sufficient AWS permissions"
+        Write-Host "  - Verify the user pool ID is correct"
+        Write-Host "  - Ensure the admin email is valid"
+        exit 1
     }
-
 }

@@ -71,7 +71,7 @@ try {
     if (Test-Path $modulePath) {
         if ($Force) {
             Remove-Item -Path $modulePath -Recurse -Force -ErrorAction Stop
-            Write-Verbose "Removed existing module directory"
+            Write-LzAwsVerbose "Removed existing module directory"
         }
         else {
             throw "Module directory already exists. Use -Force to overwrite."
@@ -80,7 +80,7 @@ try {
 
     # Create module directory
     New-Item -ItemType Directory -Path $modulePath -Force -ErrorAction Stop | Out-Null
-    Write-Verbose "Created module directory: $modulePath"
+    Write-LzAwsVerbose "Created module directory: $modulePath"
 
     # Copy module files and folders
     $sourcePath = Get-Location
@@ -89,7 +89,7 @@ try {
     Get-ChildItem -Path $sourcePath -File | ForEach-Object {
         if ($_.Name -ne 'Install-LzAws.ps1') {
             Copy-Item -Path $_.FullName -Destination $modulePath -Force -ErrorAction Stop
-            Write-Verbose "Copied file: $($_.Name)"
+            Write-LzAwsVerbose "Copied file: $($_.Name)"
         }
     }
     
@@ -99,11 +99,11 @@ try {
         if (Test-Path $folderPath) {
             $destinationPath = Join-Path $modulePath $_
             Copy-Item -Path $folderPath -Destination $modulePath -Recurse -Force -ErrorAction Stop
-            Write-Verbose "Copied folder: $_"
+            Write-LzAwsVerbose "Copied folder: $_"
             
             # List files copied in this folder
             Get-ChildItem -Path $folderPath -File | ForEach-Object {
-                Write-Verbose "  - $($_.Name)"
+                Write-LzAwsVerbose "  - $($_.Name)"
             }
         }
     }

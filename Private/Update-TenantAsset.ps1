@@ -59,7 +59,12 @@ function New-ImageThumbnail {
         return $true
     }
     catch {
-        Write-LzAwsVerbose "Error generating thumbnail: $_"
+        Write-Host "Error: Failed to generate thumbnail for '$SourcePath'"
+        Write-Host "Hints:"
+        Write-Host "  - Check if the source image file exists and is accessible"
+        Write-Host "  - Verify the image file is not corrupted"
+        Write-Host "  - Ensure you have sufficient permissions to write to the destination"
+        Write-Host "Error Details: $($_.Exception.Message)"
         return $false
     }
 }
@@ -89,12 +94,22 @@ function Update-TenantAsset {
     }
 
     if(-not (Test-Path $ProjectFolder -PathType Container)) {
-        throw "Folder $ProjectFolder not found"
+        Write-Host "Error: Project folder '$ProjectFolder' not found"
+        Write-Host "Hints:"
+        Write-Host "  - Check if the project folder exists"
+        Write-Host "  - Verify you're running from the correct directory"
+        Write-Host "  - Ensure the project name matches the folder name"
+        Write-Error "Project folder '$ProjectFolder' not found" -ErrorAction Stop
     }
 
     # First verify the bucket exists
     if (-not (Test-S3BucketExists -BucketName $BucketName)) {
-        throw "Bucket $BucketName does not exist"
+        Write-Host "Error: S3 bucket '$BucketName' does not exist"
+        Write-Host "Hints:"
+        Write-Host "  - Check if the bucket was created successfully"
+        Write-Host "  - Verify AWS permissions for S3 operations"
+        Write-Host "  - Ensure the bucket name is correct"
+        Write-Error "S3 bucket '$BucketName' does not exist" -ErrorAction Stop
     }
 
     # Process each language folder. base, en-US, es-MX etc.
@@ -162,7 +177,14 @@ function Update-TenantAsset {
                     }
                 }
                 catch {
-                    throw "Error processing asset $($Asset.FullName): $_"
+                    Write-Host "Error: Failed to process asset '$($Asset.Name)'"
+                    Write-Host "Hints:"
+                    Write-Host "  - Check if the file exists and is accessible"
+                    Write-Host "  - Verify file permissions"
+                    Write-Host "  - Ensure the file is not locked or in use"
+                    Write-Host "File: $($Asset.FullName)"
+                    Write-Host "Error Details: $($_.Exception.Message)"
+                    Write-Error "Failed to process asset '$($Asset.Name)': $($_.Exception.Message)" -ErrorAction Stop
                 }
             }
 
@@ -184,7 +206,14 @@ function Update-TenantAsset {
                 Set-Content -Path $VersionFilePath -Value $VersionContent
             }
             catch {
-                throw "Error writing manifest/version files: $_"
+                Write-Host "Error: Failed to write manifest/version files for asset group '$AssetGroupName'"
+                Write-Host "Hints:"
+                Write-Host "  - Check if the directory is writable"
+                Write-Host "  - Verify file permissions"
+                Write-Host "  - Ensure the files are not locked"
+                Write-Host "Directory: $($AssetGroup.FullName)"
+                Write-Host "Error Details: $($_.Exception.Message)"
+                Write-Error "Failed to write manifest/version files for asset group '$AssetGroupName': $($_.Exception.Message)" -ErrorAction Stop
             }
         }
 
@@ -195,14 +224,29 @@ function Update-TenantAsset {
             $exitCode = $LASTEXITCODE  # Use LASTEXITCODE instead of $?
             
             if ($exitCode -ne 0) {
-                throw "AWS CLI command failed with exit code $exitCode. Output: $($result | Out-String)"
+                Write-Host "Error: Failed to sync files to S3 for language '$AssetLanguageName'"
+                Write-Host "Hints:"
+                Write-Host "  - Check AWS permissions for S3 operations"
+                Write-Host "  - Verify the bucket exists and is accessible"
+                Write-Host "  - Ensure network connectivity to AWS"
+                Write-Host "Command: $syncCommand"
+                Write-Host "AWS Error: $($result | Out-String)"
+                Write-Error "Failed to sync files to S3 for language '$AssetLanguageName': $($result | Out-String)" -ErrorAction Stop
             }
             
             Write-LzAwsVerbose "Successfully synced $AssetLanguageName to S3"
             Write-LzAwsVerbose ($result | Out-String)  # Ensure string conversion
         }
         catch {
-            throw "Error syncing to S3: $($_.Exception.Message)"
+            Write-Host "Error: Failed to sync files to S3 for language '$AssetLanguageName'"
+            Write-Host "Hints:"
+            Write-Host "  - Check AWS service status"
+            Write-Host "  - Verify AWS credentials are valid"
+            Write-Host "  - Ensure the AWS CLI is installed and configured"
+            Write-Host "Error Details: $($_.Exception.Message)"
+            Write-Error "Failed to sync files to S3 for language '$AssetLanguageName': $($_.Exception.Message)" -ErrorAction Stop
         }
     }
+
+    Write-LzAwsVerbose "Successfully updated assets for project: $ProjectName"
 }
