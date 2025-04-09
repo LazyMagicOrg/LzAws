@@ -24,44 +24,23 @@ function Deploy-AssetsAws {
     param()
 
     try {
-        $SystemConfig = Get-SystemConfig
-        $Region = $SystemConfig.Region
-        $Account = $SystemConfig.Account    
-        $ProfileName = $SystemConfig.Config.Profile
-    }
-    catch {
-        Write-Host "Error: Failed to load system configuration"
-        Write-Host "Hints:"
-        Write-Host "  - Check if systemconfig.yaml exists and is valid"
-        Write-Host "  - Verify AWS credentials are properly configured"
-        Write-Host "  - Ensure you have sufficient permissions"
-        Write-Host "Error Details: $($_.Exception.Message)"
-        exit 1
-    }
+        $null = Get-SystemConfig
+        $Region = $script:Region
+        $Account = $script:Account    
+        $ProfileName = $script:Config.Profile
+        $Config = $script:Config
 
-    # Update system assets
-    try {
-        $BucketName = $SystemConfig.Config.SystemKey + "---assets-" + $SystemConfig.Config.SystemSuffix
+        # Update system assets
+        $BucketName = $Config.SystemKey + "---assets-" + $Config.SystemSuffix
         New-LzAwsS3Bucket -BucketName $BucketName -Region $Region -Account $Account -BucketType "ASSETS" -ProfileName $ProfileName
         Write-Host "Deploying system assets to bucket: $BucketName using profile: $ProfileName"
         Update-TenantAsset "system" $BucketName $ProfileName    
-    }
-    catch {
-        Write-Host "Error: Failed to deploy system assets"
-        Write-Host "Hints:"
-        Write-Host "  - Check if the system assets bucket exists and is accessible"
-        Write-Host "  - Verify AWS permissions for S3 operations"
-        Write-Host "  - Ensure system asset files are properly structured"
-        Write-Host "Error Details: $($_.Exception.Message)"
-        exit 1
-    }
 
-    # Update tenant assets
-    Write-Host "Processing tenant configurations..."
-    $Tenants = $SystemConfig.Config.Tenants
-    foreach($TenantKey in $Tenants.Keys) {
-        Write-Host "Processing tenant: $TenantKey"
-        try {
+        # Update tenant assets
+        Write-Host "Processing tenant configurations..."
+        $Tenants = $Config.Tenants
+        foreach($TenantKey in $Tenants.Keys) {
+            Write-Host "Processing tenant: $TenantKey"
             $TenantConfigJson = Get-TenantConfig $TenantKey
             $KvsEntries = $TenantConfigJson | ConvertFrom-Json -Depth 10
 
@@ -89,14 +68,17 @@ function Deploy-AssetsAws {
                     $TenantLevel = 2
                 } 
                 else {
-                    Write-Host "Error: Invalid domain format for tenant '$TenantKey'"
-                    Write-Host "Hints:"
-                    Write-Host "  - Domain must be in format: tenant.example.com or subtenant.tenant.example.com"
-                    Write-Host "  - Check tenant configuration in systemconfig.yaml"
-                    Write-Host "  - Verify domain structure matches expected format"
-                    Write-Host "Domain: $Domain"
-                    exit 1
-                }
+                    $errorMessage = @"
+Error: Invalid domain format for tenant '$TenantKey'
+Function: Deploy-AssetsAws
+Hints:
+- Domain must be in format: tenant.example.com or subtenant.tenant.example.com
+- Check tenant configuration in systemconfig.yaml
+- Verify domain structure matches expected format
+Domain: $Domain
+"@
+                throw $errorMessage
+            }
 
                 Write-Host "Processing domain configuration:"
                 Write-Host "Domain: $Domain"
@@ -117,34 +99,19 @@ function Deploy-AssetsAws {
                         continue
                     }
 
-                    try {
-                        $BucketName = Get-AssetName $KvsEntry $Behavior $false
-                        New-LzAwsS3Bucket -BucketName $BucketName -Region $Region -Account $Account -BucketType "ASSETS" -ProfileName $ProfileName
-                        Write-Host "Deploying tenant assets for project: $TenancyProject to bucket: $BucketName using profile: $ProfileName"
-                        Update-TenantAsset $TenancyProject $BucketName $ProfileName
-                    }
-                    catch {
-                        Write-Host "Error: Failed to update tenant assets for project '$TenancyProject'"
-                        Write-Host "Hints:"
-                        Write-Host "  - Check if the asset bucket exists and is accessible"
-                        Write-Host "  - Verify AWS permissions for S3 operations"
-                        Write-Host "  - Ensure asset files are properly structured"
-                        Write-Host "Error Details: $($_.Exception.Message)"
-                        exit 1
-                    }
+                    $BucketName = Get-AssetName $KvsEntry $Behavior $false
+                    New-LzAwsS3Bucket -BucketName $BucketName -Region $Region -Account $Account -BucketType "ASSETS" -ProfileName $ProfileName
+                    Write-Host "Deploying tenant assets for project: $TenancyProject to bucket: $BucketName using profile: $ProfileName"
+                    Update-TenantAsset $TenancyProject $BucketName $ProfileName
+
                 }
             }
-        }
-        catch {
-            Write-Host "Error: Failed to process tenant '$TenantKey'"
-            Write-Host "Hints:"
-            Write-Host "  - Check tenant configuration in systemconfig.yaml"
-            Write-Host "  - Verify tenant assets are properly structured"
-            Write-Host "  - Ensure AWS resources are properly configured"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
-        }
+         }
+     } 
+     catch {
+        Write-Host ($_.Exception.Message)
+        return $false
     }
-
     Write-LzAwsVerbose "Finished deploying all assets"
+    return $true
 }

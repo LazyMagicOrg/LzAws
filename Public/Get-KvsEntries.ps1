@@ -20,61 +20,34 @@ function Get-KvsEntries {
     try {
         Write-LzAwsVerbose "Starting KVS entries retrieval"
 
-        $SystemConfig = Get-SystemConfig
-        # Get-SystemConfig already handles exit 1 on failure
+        $null = Get-SystemConfig
+        $Region = $script:Region
+        $Account = $script:Account      
+        $Config = $script:Config
+        $ProfileName = $script:ProfileName
 
-        $Region = $SystemConfig.Region
-        $Account = $SystemConfig.Account      
-        $Config = $SystemConfig.Config
-        $ProfileName = $SystemConfig.ProfileName
-
-        Write-LzAwsVerbose "Region: $Region, Account: $Account"
-        
-        try {
-            $ServiceStackOutputDict = Get-StackOutputs ($Config.SystemKey + "---system")
-            $KvsArn = $ServiceStackOutputDict["KeyValueStoreArn"]
-            if (-not $KvsArn) {
-                Write-Host "Error: KeyValueStoreArn not found in stack outputs"
-                Write-Host "Hints:"
-                Write-Host "  - Check if the system stack is properly deployed"
-                Write-Host "  - Verify the stack outputs contain KeyValueStoreArn"
-                Write-Host "  - Ensure you have permission to read stack outputs"
-                exit 1
-            }
-        }
-        catch {
-            Write-Host "Error: Failed to get stack outputs"
-            Write-Host "Hints:"
-            Write-Host "  - Check if the system stack exists"
-            Write-Host "  - Verify AWS credentials are valid"
-            Write-Host "  - Ensure you have permission to read stack outputs"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
+       
+        $ServiceStackOutputDict = Get-StackOutputs ($Config.SystemKey + "---system")
+        $KvsArn = $ServiceStackOutputDict["KeyValueStoreArn"]
+        if (-not $KvsArn) {
+            $errorMessage = @"
+Error: KeyValueStoreArn not found in stack outputs
+Function: Get-KvsEntries
+Hints:
+  - Check if the system stack is properly deployed
+  - Verify the stack outputs contain KeyValueStoreArn
+  - Ensure you have permission to read stack outputs
+"@
+            throw $errorMessage
         }
 
-        try {
-            # Retrieve the entire response object
-            Get-CFKVKeyValueStore -KvsARN $KvsARN
-            $Response = Get-CFKVKeyList -KvsARN $KvsARN
-            return $Response
-        }
-        catch {
-            Write-Host "Error: Failed to retrieve KVS entries"
-            Write-Host "Hints:"
-            Write-Host "  - Check if the KVS service is available"
-            Write-Host "  - Verify the KVS ARN is valid"
-            Write-Host "  - Ensure you have permission to access KVS"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
-        }
+        # Retrieve the entire response object
+        Get-CFKVKeyValueStore -KvsARN $KvsARN
+        $Response = Get-CFKVKeyList -KvsARN $KvsARN
+        return $Response
     }
     catch {
-        Write-Host "Error: An unexpected error occurred while retrieving KVS entries"
-        Write-Host "Hints:"
-        Write-Host "  - Check AWS service availability"
-        Write-Host "  - Verify AWS credentials are valid"
-        Write-Host "  - Review AWS CloudTrail logs for detailed error information"
-        Write-Host "Error Details: $($_.Exception.Message)"
-        exit 1
+        Write-Host ($_.Exception.Message)
+        return $false
     }
 }

@@ -1,40 +1,43 @@
 function Test-S3BucketExists {
-    [CmdletBinding()]
-    param (
+    param(
         [Parameter(Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
         [string]$BucketName
     )
-    
+
+    $ProfileName = $script:ProfileName
+    $Region = $script:Region
+
+    if ($null -eq $BucketName) {
+        $errorMessage = @"
+Error: Bucket name is required
+Function: Test-S3BucketExists
+Hints:
+- Provide a valid bucket name
+- Check if the bucket name parameter is set
+"@
+        throw $errorMessage
+    }
+
+    # Clean bucket name - remove any S3 URL components
+    $CleanBucketName = $BucketName.Split('.')[0] 
     try {
-        # Try to get just this specific bucket
-        $Null = Get-S3BucketLocation -BucketName $BucketName -ErrorAction SilentlyContinue
-        Write-LzAwsVerbose "Bucket '$BucketName' exists"
-        return $true
+        $bucket = Get-S3Bucket -BucketName $CleanBucketName -Region $Region -ProfileName $ProfileName
+        return $null -ne $bucket
     }
     catch {
-        if ($_.Exception.Message -like "*The specified bucket does not exist*") {
-            Write-LzAwsVerbose "Bucket '$BucketName' does not exist"
+        if ($_.Exception.Message -like "*NoSuchBucket*") {
             return $false
         }
-        
-        if ($_.Exception.Message -like "*Access Denied*") {
-            Write-Host "Error: Access denied when checking bucket '$BucketName'"
-            Write-Host "Hints:"
-            Write-Host "  - Check AWS credentials and permissions"
-            Write-Host "  - Verify the IAM role has s3:GetBucketLocation permission"
-            Write-Host "  - Ensure the AWS profile is correctly configured"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            Write-Error "Access denied when checking bucket '$BucketName': $($_.Exception.Message)" -ErrorAction Stop
-        }
-
-        Write-Host "Error: Failed to check bucket existence"
-        Write-Host "Hints:"
-        Write-Host "  - Check AWS service status"
-        Write-Host "  - Verify network connectivity to AWS"
-        Write-Host "  - Ensure AWS credentials are valid"
-        Write-Host "Bucket: $BucketName"
-        Write-Host "Error Details: $($_.Exception.Message)"
-        Write-Error "Failed to check bucket existence for '$BucketName': $($_.Exception.Message)" -ErrorAction Stop
+        $errorMessage = @"
+Error: Failed to check bucket existence for '$CleanBucketName'
+Function: Test-S3BucketExists
+Hints:
+- Check if you have sufficient AWS permissions
+- Verify AWS credentials are valid
+- Ensure AWS region is correctly set
+- Review AWS IAM permissions
+AWS Error: $($_.Exception.Message)
+"@
+        throw $errorMessage
     }
 }

@@ -5,13 +5,13 @@ function Find-FileUp {
         [string]$FileName,
         
         [Parameter(Mandatory = $false)]
-        [string]$StartPath = (Get-Location).Path
+        [string]$StartPath
     )
 
-    # Convert the start path to absolute path
-    $CurrentPath = Resolve-Path $StartPath
+    # Convert the start path to absolute path - this can only fail if StartPath is explicitly provided and invalid
+    $CurrentPath = (Get-Location).Path
 
-    while ($true) {
+    while ($CurrentPath -ne '') {
         # Check if the file exists in the current directory
         $FilePath = Join-Path $CurrentPath $FileName -ErrorAction SilentlyContinue
         if ($FilePath -and (Test-Path $FilePath)) {
@@ -20,15 +20,10 @@ function Find-FileUp {
 
         # Get the parent directory
         $ParentPath = Split-Path $CurrentPath -Parent -ErrorAction SilentlyContinue
-
-        # If we're at the root directory and haven't found the file, return null
-        if ($null -eq $ParentPath -or $CurrentPath -eq $ParentPath) {
-            return $null
-        }
-
         # Move up to the parent directory
         $CurrentPath = $ParentPath
     }
+    return $null
 }
 
 # Example usage:

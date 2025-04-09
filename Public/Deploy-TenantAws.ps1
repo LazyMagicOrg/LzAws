@@ -23,73 +23,48 @@ function Deploy-TenantAws {
     )
 
     try {
-        try {
-            Deploy-TenantResourcesAws $TenantKey
-        }
-        catch {
-            Write-Host "Error: Failed to deploy tenant resources for '$TenantKey'"
-            Write-Host "Hints:"
-            Write-Host "  - Check if the tenant exists in systemconfig.yaml"
-            Write-Host "  - Verify AWS resources are properly configured"
-            Write-Host "  - Review AWS CloudTrail logs for deployment failures"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
-        }
+        Deploy-TenantResourcesAws $TenantKey
 
         Write-LzAwsVerbose "Deploying tenant stack"  
-        try {
-            $SystemConfig = Get-SystemConfig 
-            $Config = $SystemConfig.Config
-            $Environment = $Config.Environment
-            $ProfileName = $Config.Profile
-            $SystemKey = $Config.SystemKey
-            $SystemSuffix = $Config.SystemSuffix
-        }
-        catch {
-            Write-Host "Error: Failed to load system configuration for tenant '$TenantKey'"
-            Write-Host "Hints:"
-            Write-Host "  - Check if systemconfig.yaml exists and is valid"
-            Write-Host "  - Verify AWS credentials are properly configured"
-            Write-Host "  - Ensure you have sufficient permissions"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
-        }
+
+        $null = Get-SystemConfig 
+        $ProfileName = $script:ProfileName
+        $Region = $script:Region
+        $Config = $script:Config
+        $Environment = $Config.Environment
+        $SystemKey = $Config.SystemKey
+        $SystemSuffix = $Config.SystemSuffix
 
         $StackName = $Config.SystemKey + "-" + $TenantKey + "--tenant" 
         $ArtifactsBucket = $Config.SystemKey + "---artifacts-" + $Config.SystemSuffix
-
-        try {
-            $CdnLogBucketName = Get-CDNLogBucketName -SystemConfig $SystemConfig -TenantKey $TenantKey
-        }
-        catch {
-            Write-Host "Error: Failed to get CDN log bucket name for tenant '$TenantKey'"
-            Write-Host "Hints:"
-            Write-Host "  - Check if the CDN log bucket exists"
-            Write-Host "  - Verify the system stack is deployed"
-            Write-Host "  - Ensure the tenant configuration is valid"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
-        }
-
         $Tenant = $Config.Tenants[$TenantKey]
-
         # Validate required tenant properties
         $RequiredProps = @('RootDomain', 'HostedZoneId', 'AcmCertificateArn')
         foreach ($Prop in $RequiredProps) {
             if (-not $Tenant.ContainsKey($Prop) -or [string]::IsNullOrWhiteSpace($Tenant[$Prop])) {
-                Write-Host "Error: Missing required property '$Prop' for tenant '$TenantKey'"
-                Write-Host "Hints:"
-                Write-Host "  - Check tenant configuration in systemconfig.yaml"
-                Write-Host "  - Verify all required properties are defined"
-                Write-Host "  - Ensure property values are not empty"
-                exit 1
+                $errorMessage = @"
+Error: Missing required property '$Prop' for tenant '$TenantKey'
+Function: Deploy-TenantAws
+Hints:
+  - Check tenant configuration in systemconfig.yaml
+  - Verify all required properties are defined
+  - Ensure property values are not empty
+"@
+                throw $errorMessage
             }
         }
 
         $RootDomain = $Tenant.RootDomain
         if([string]::IsNullOrWhiteSpace($RootDomain)) {
-            Write-Host "RootDomain is missing or empty."
-            return $false
+            $errorMessage = @"
+Error: RootDomain is missing or empty for tenant '$TenantKey'
+Function: Deploy-TenantAws
+Hints:
+  - Check tenant configuration in systemconfig.yaml
+  - Verify the RootDomain property is defined
+  - Ensure the RootDomain value is not empty
+"@
+            throw $errorMessage
         }
 
         $HostedZoneId = $Tenant.HostedZoneId
@@ -126,24 +101,42 @@ function Deploy-TenantAws {
         # Deploy the stack using SAM CLI
         $Parameters = ConvertTo-ParameterOverrides -parametersDict $ParametersDict
         Write-Host "Deploying the stack $StackName" 
-        sam deploy `
+        $result = sam deploy `
         --template-file Templates/sam.tenant.yaml `
         --s3-bucket $ArtifactsBucket `
         --stack-name $StackName `
         --parameter-overrides $Parameters `
         --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND `
-        --profile $ProfileName
+        --region $Region `
+        --profile $ProfileName 2>&1
+
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) {
+            $results = $result | Out-String
+            if($results -match "No changes to deploy") {
+                Write-LzAwsVerbose "No changes to deploy. Stack is up to date."
+            } else {
+                $errorMessage = @"
+Error: SAM deployment failed for tenant '$TenantKey'
+Function: Deploy-TenantAws
+Hints:
+  - Check AWS CloudFormation console for detailed errors
+  - Verify you have required IAM permissions
+  - Ensure the template syntax is correct
+  - Validate the parameter values
+Error Details: SAM deployment failed with exit code $exitCode
+Command Output: $($result | Out-String)
+"@
+                throw $errorMessage
+            }
+        }
 
         Write-LzAwsVerbose "Tenant deployment completed successfully for $TenantKey"
     }
     catch {
-        Write-Host "Error: An unexpected error occurred while deploying tenant '$TenantKey'"
-        Write-Host "Hints:"
-        Write-Host "  - Check AWS service status"
-        Write-Host "  - Verify tenant configuration is valid"
-        Write-Host "  - Review AWS CloudTrail logs for details"
-        Write-Host "Error Details: $($_.Exception.Message)"
-        exit 1
+        Write-Host ($_.Exception.Message)
+        return $false
     }
+    return $true
 }
 

@@ -35,32 +35,24 @@ function Get-CDNLogAws {
     )
 
     try {
-        $SystemConfig = Get-SystemConfig
-        $Config = $SystemConfig.Config
-        $ProfileName = $SystemConfig.ProfileName
+        $null = Get-SystemConfig
+        $Config = $script:Config
+        $ProfileName = $script:ProfileName
 
         # Get the CDN log bucket name
-        try {
-            $BucketName = Get-CDNLogBucketName -SystemConfig $SystemConfig -TenantKey $TenantKey
-        }
-        catch {
-            Write-Host "Error: Failed to get CDN log bucket name for tenant '$TenantKey'"
-            Write-Host "Hints:"
-            Write-Host "  - Check if the CDN log bucket exists"
-            Write-Host "  - Verify the system stack is deployed"
-            Write-Host "  - Ensure the tenant configuration is valid"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
-        }
+        $BucketName = Get-CDNLogBucketName -SystemConfig $SystemConfig -TenantKey $TenantKey
 
         # Verify bucket exists
         if (-not (Test-S3BucketExists -BucketName $BucketName)) {
-            Write-Host "Error: CDN log bucket '$BucketName' does not exist"
-            Write-Host "Hints:"
-            Write-Host "  - Check if the bucket was created successfully"
-            Write-Host "  - Verify AWS permissions for S3 operations"
-            Write-Host "  - Ensure the bucket name is correct"
-            exit 1
+            $errorMessage = @"
+Error: CDN log bucket '$BucketName' does not exist
+Function: Get-CDNLogAws
+Hints:
+  - Check if the bucket was created successfully
+  - Verify AWS permissions for S3 operations
+  - Ensure the bucket name is correct
+"@
+            throw $errorMessage
         }
 
         function Convert-CloudFrontLogToCSV {
@@ -122,13 +114,16 @@ function Get-CDNLogAws {
                 }
             }
             catch {
-                Write-Host "Error: Failed to decompress file '$Infile'"
-                Write-Host "Hints:"
-                Write-Host "  - Check if the file exists and is accessible"
-                Write-Host "  - Verify the file is not corrupted"
-                Write-Host "  - Ensure you have sufficient permissions"
-                Write-Host "Error Details: $($_.Exception.Message)"
-                throw
+                $errorMessage = @"
+Error: Failed to decompress file '$Infile'
+Function: Expand-GZipFile
+Hints:
+  - Check if the file exists and is accessible
+  - Verify the file is not corrupted
+  - Ensure you have sufficient permissions
+Error Details: $($_.Exception.Message)
+"@
+                throw $errorMessage
             }
             finally {
                 if ($GzipStream) { $GzipStream.Dispose() }
@@ -147,22 +142,28 @@ function Get-CDNLogAws {
                 Select-Object -First 1
 
             if (-not $LatestFile) {
-                Write-Host "Error: No log files found in bucket '$BucketName'"
-                Write-Host "Hints:"
-                Write-Host "  - Check if CloudFront is configured to write logs"
-                Write-Host "  - Verify the bucket has the correct permissions"
-                Write-Host "  - Ensure there is traffic generating logs"
-                exit 1
+                $errorMessage = @"
+Error: No log files found in bucket '$BucketName'
+Function: Get-CDNLogAws
+Hints:
+  - Check if CloudFront is configured to write logs
+  - Verify the bucket has the correct permissions
+  - Ensure there is traffic generating logs
+"@
+                throw $errorMessage
             }
         }
         catch {
-            Write-Host "Error: Failed to retrieve log files from bucket '$BucketName'"
-            Write-Host "Hints:"
-            Write-Host "  - Check AWS permissions for S3 operations"
-            Write-Host "  - Verify the bucket exists and is accessible"
-            Write-Host "  - Ensure network connectivity to AWS"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
+            $errorMessage = @"
+Error: Failed to retrieve log files from bucket '$BucketName'
+Function: Get-CDNLogAws
+Hints:
+  - Check AWS permissions for S3 operations
+  - Verify the bucket exists and is accessible
+  - Ensure network connectivity to AWS
+Error Details: $($_.Exception.Message)
+"@
+            throw $errorMessage
         }
 
         # Download the compressed file
@@ -172,14 +173,17 @@ function Get-CDNLogAws {
             Read-S3Object -BucketName $BucketName -Key $LatestFile.Key -File $TempCompressedFile -ProfileName $ProfileName
         }
         catch {
-            Write-Host "Error: Failed to download log file from S3"
-            Write-Host "Hints:"
-            Write-Host "  - Check AWS permissions for S3 operations"
-            Write-Host "  - Verify the file exists in the bucket"
-            Write-Host "  - Ensure sufficient disk space"
-            Write-Host "File: $($LatestFile.Key)"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
+            $errorMessage = @"
+Error: Failed to download log file from S3
+Function: Get-CDNLogAws
+Hints:
+  - Check AWS permissions for S3 operations
+  - Verify the file exists in the bucket
+  - Ensure sufficient disk space
+File: $($LatestFile.Key)
+Error Details: $($_.Exception.Message)
+"@
+            throw $errorMessage
         }
 
         try {
@@ -204,13 +208,16 @@ function Get-CDNLogAws {
             Write-Host "Fields found: $($Result.Fields -join ', ')"
         }
         catch {
-            Write-Host "Error: Failed to process log file"
-            Write-Host "Hints:"
-            Write-Host "  - Check if the log file is valid"
-            Write-Host "  - Verify sufficient disk space"
-            Write-Host "  - Ensure write permissions in current directory"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
+            $errorMessage = @"
+Error: Failed to process log file
+Function: Get-CDNLogAws
+Hints:
+  - Check if the log file is valid
+  - Verify sufficient disk space
+  - Ensure write permissions in current directory
+Error Details: $($_.Exception.Message)
+"@
+            throw $errorMessage
         }
         finally {
             # Clean up temporary files
@@ -223,12 +230,8 @@ function Get-CDNLogAws {
         }
     }
     catch {
-        Write-Host "Error: An unexpected error occurred while processing CDN logs"
-        Write-Host "Hints:"
-        Write-Host "  - Check AWS service status"
-        Write-Host "  - Verify tenant configuration is valid"
-        Write-Host "  - Review AWS CloudTrail logs for details"
-        Write-Host "Error Details: $($_.Exception.Message)"
-        exit 1
+        Write-Host ($_.Exception.Message)
+        return $false
     }
+    return $true
 }

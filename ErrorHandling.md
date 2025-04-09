@@ -5,84 +5,97 @@ This document outlines the error handling strategy for the LzAws module. The str
 
 ## Error Handling Patterns
 
-### 1. Public Functions (in `Public` folder)
-Public functions are entry points that users directly call. These functions use `exit 1` for error handling to provide clean, user-friendly error messages.
+### Private Functions (in `Private` folder)
+Private functions should handle errors by creating a formatted error message and throwing it. This pattern ensures consistent error reporting and allows the calling public function to handle the error appropriately.
 
-Example pattern:
+#### Pattern
+```powershell
+try {
+    # Function logic here
+} catch {
+    $errorMessage = @"
+Error: Brief description of what failed
+Hints:
+  - First hint about how to fix it
+  - Second hint about how to fix it
+  - Third hint about how to fix it
+"@
+    throw $errorMessage
+}
+```
+
+#### Guidelines
+1. Always create a formatted error message using a here-string (`@"..."@`)
+2. Include a clear "Error:" line describing what failed
+3. Provide helpful hints for troubleshooting
+4. Use `throw` to stop execution and propagate the error
+5. Keep error messages user-friendly and actionable
+6. Include relevant context (e.g., file names, paths) in the error message
+
+#### Example
+```powershell
+function Get-SystemConfig {
+    try {
+        $FilePath = Find-FileUp "systemconfig.yaml"
+        if($null -eq $FilePath) {
+            $errorMessage = @"
+Error: Can't find systemconfig.yaml.
+Hints:
+  - Are you running this from the root of a solution?
+  - Do you have a systemconfig.yaml file in a folder above the solution folder?
+"@
+            throw $errorMessage
+        }
+        # Rest of function...
+    }
+    catch {
+        if ($_.Exception.Message -like "*Set-AWSCredential*") {
+            $errorMessage = @"
+Error: Failed to set AWS profile to '$ProfileName'
+Hints:
+  - Have you logged in? aws sso login --profile $ProfileName
+  - Check if the profile exists in your AWS credentials file
+  - Verify the profile has valid credentials
+  - Try running 'aws configure list-profiles' to see available profiles
+"@
+            throw $errorMessage
+        }
+        throw "Error: Failed to load system configuration: $($_.Exception.Message)"
+    }
+}
+```
+
+### Public Functions (in `Public` folder)
+Public functions are entry points that users directly call. These functions should handle errors by displaying error messages and stopping execution.
+
+#### Pattern
 ```powershell
 try {
     # Operation code
 }
 catch {
-    Write-Host "Error: <descriptive message>"
-    Write-Host "Hints:"
-    Write-Host "  - <helpful hint 1>"
-    Write-Host "  - <helpful hint 2>"
-    Write-Host "Error Details: $($_.Exception.Message)"
+    Write-Host $_.Exception.Message
     exit 1
 }
 ```
 
-Key points:
-- Use `exit 1` to stop execution and return an error code
-- Provide clear, user-friendly error messages
-- Include helpful hints for troubleshooting
-- Show relevant error details without exposing internal information
+#### Guidelines
+1. Display error messages from private functions using `Write-Host`
+2. Use `exit 1` to stop execution
+3. Do not use `throw` directly
+4. Keep error messages user-friendly and actionable
+5. Include helpful hints for troubleshooting
+6. Show relevant error details without exposing internal information
 
-### 2. Private Functions (in `Private` folder)
-Private functions are internal helpers called by public functions. These functions use `Write-Error -ErrorAction Stop` to properly propagate errors up to the calling function.
-
-Example pattern:
+#### Example
 ```powershell
-try {
-    # Operation code
-}
-catch {
-    Write-Host "Error: <descriptive message>"
-    Write-Host "Hints:"
-    Write-Host "  - <helpful hint 1>"
-    Write-Host "  - <helpful hint 2>"
-    Write-Host "Error Details: $($_.Exception.Message)"
-    Write-Error "<descriptive message>: $($_.Exception.Message)" -ErrorAction Stop
-}
-```
-
-Key points:
-- Use `Write-Error -ErrorAction Stop` to propagate errors
-- Provide descriptive error messages
-- Include helpful hints for debugging
-- Allow the calling function to handle the error appropriately
-
-### 3. Module Functions (in `LzAws.psm1`)
-Module-level functions use `Write-Error` for internal error handling.
-
-Example pattern:
-```powershell
-try {
-    # Operation code
-}
-catch {
-    Write-Error "Failed to <operation>: $_"
-    return $false
-}
-```
-
-Key points:
-- Use `Write-Error` for internal module errors
-- Keep error messages concise and specific
-- Return appropriate values to indicate failure
-
-## Why Not Use `throw`?
-We avoid using `throw` because:
-1. It exposes too much internal information in the error stack trace
-2. It can be disruptive to the user experience
-3. It makes error handling more complex for calling functions
-4. It doesn't provide the clean, controlled error handling we need for deployment scripts
-
-## Best Practices
-1. Always provide clear, user-friendly error messages
-2. Include helpful hints for troubleshooting
-3. Show relevant error details without exposing internal information
-4. Use appropriate error handling based on function scope (public vs private)
-5. Maintain consistent error handling patterns across similar functions
-6. Document error conditions and handling in function comments 
+function Deploy-TestError {
+    try {
+        $SystemConfig = Get-SystemConfig
+        # Rest of function...
+    }
+    catch {
+        Write-Host $_.Exception.Message
+        return false
+    }
+} 

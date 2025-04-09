@@ -22,35 +22,28 @@ function Deploy-PermsAws {
     try {
         Write-LzAwsVerbose "Starting permissions stack deployment"
 
+        Get-SystemConfig 
+        $ProfileName = $script:Profile
+        $Region = $script:Region
         # Deploy system resources first
-        try {
-            Deploy-SystemResourcesAws
-        }
-        catch {
-            Write-Host "Error: Failed to deploy system resources"
-            Write-Host "Hints:"
-            Write-Host "  - Check if system resources deployment completed successfully"
-            Write-Host "  - Verify AWS credentials and permissions"
-            Write-Host "  - Review system stack deployment logs"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
-        }
+        Deploy-SystemResourcesAws
 
         Write-LzAwsVerbose "Deploying perms stack"  
-        $SystemConfig = Get-SystemConfig 
-        # Get-SystemConfig already handles exit 1 on failure
+        $Config = $script:Config
 
-        $Config = $SystemConfig.Config
         if ($null -eq $Config) {
-            Write-Host "Error: System configuration is missing Config section"
-            Write-Host "Hints:"
-            Write-Host "  - Check if Config section exists in systemconfig.yaml"
-            Write-Host "  - Verify the configuration file structure"
-            Write-Host "  - Ensure all required configuration sections are present"
-            exit 1
+            $errorMessage = @"
+Error: System configuration is missing Config section
+Function: Deploy-PermsAws
+Hints:
+  - Check if Config section exists in systemconfig.yaml
+  - Verify the configuration file structure
+  - Ensure all required configuration sections are present
+"@
+            throw $errorMessage
         }
 
-        $ProfileName = $Config.Profile
+       
         $SystemKey = $Config.SystemKey
         $Environment = $Config.Environment
         $SystemSuffix = $Config.SystemSuffix
@@ -59,84 +52,78 @@ function Deploy-PermsAws {
         $SystemStackName = $SystemKey + "---system"
 
         # Get system stack outputs
-        try {
-            $SystemStackOutputs = Get-StackOutputs $SystemStackName
-            if ($null -eq $SystemStackOutputs["KeyValueStoreArn"]) {
-                Write-Host "Error: KeyValueStoreArn not found in system stack outputs"
-                Write-Host "Hints:"
-                Write-Host "  - Verify the system stack was deployed successfully"
-                Write-Host "  - Check if the KVS resource was created"
-                Write-Host "  - Ensure the system stack outputs are correct"
-                exit 1
-            }
+        $SystemStackOutputs = Get-StackOutputs $SystemStackName
+
+        if ($null -eq $SystemStackOutputs["KeyValueStoreArn"]) {
+            $errorMessage = @"
+Error: KeyValueStoreArn not found in system stack outputs
+Function: Deploy-PermsAws
+Hints:
+  - Verify the system stack was deployed successfully
+  - Check if the KVS resource was created
+  - Ensure the system stack outputs are correct
+"@
+                throw $errorMessage
         }
-        catch {
-            Write-Host "Error: Failed to get system stack outputs"
-            Write-Host "Hints:"
-            Write-Host "  - Verify the system stack exists"
-            Write-Host "  - Check if you have permission to read stack outputs"
-            Write-Host "  - Ensure the stack name is correct: $SystemStackName"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
+
+        $ParametersDict = @{
+            "SystemKeyParameter" = $SystemKey
+            "EnvironmentParameter" = $Environment
+            "SystemSuffixParameter" = $SystemSuffix	
+            "KeyValueStoreArnParameter" = $SystemStackOutputs["KeyValueStoreArn"]	
         }
+        $ServiceStackName = $SystemKey + "---service"
 
         # Build parameters for stack deployment
-        try {
-            $ParametersDict = @{
-                "SystemKeyParameter" = $SystemKey
-                "EnvironmentParameter" = $Environment
-                "SystemSuffixParameter" = $SystemSuffix	
-                "KeyValueStoreArnParameter" = $SystemStackOutputs["KeyValueStoreArn"]	
-            }
+        $ServiceStackOutputs = Get-StackOutputs $ServiceStackName
 
-            $ServiceStackName = $SystemKey + "---service"
-            $ServiceStackOutputs = Get-StackOutputs $ServiceStackName
-            $ServiceStackOutputs.GetEnumerator() | Sort-Object Key | ForEach-Object{
-                $Key = $_.Key + "Parameter"
-                $Value = $_.Value
-                $ParametersDict.Add($Key, $Value)
-            }
-        }
-        catch {
-            Write-Host "Error: Failed to prepare stack parameters"
-            Write-Host "Hints:"
-            Write-Host "  - Check if service stack exists and is deployed"
-            Write-Host "  - Verify service stack outputs are available"
-            Write-Host "  - Ensure parameter names match template requirements"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
+        $ServiceStackOutputs.GetEnumerator() | Sort-Object Key | ForEach-Object{
+            $Key = $_.Key + "Parameter"
+            $Value = $_.Value
+            $ParametersDict.Add($Key, $Value)
         }
 
         # Verify deployment config exists
         if(-not (Test-Path -Path "./Generated/deploymentconfig.g.yaml" -PathType Leaf)) {
-            Write-Host "Error: deploymentconfig.g.yaml does not exist"
-            Write-Host "Hints:"
-            Write-Host "  - Run the generation step before deployment"
-            Write-Host "  - Check if the generation process completed successfully"
-            Write-Host "  - Verify the deployment configuration was generated"
-            exit 1
+            $errorMessage = @"
+Error: deploymentconfig.g.yaml does not exist
+Function: Deploy-PermsAws
+Hints:
+  - Run the generation step before deployment
+  - Check if the generation process completed successfully
+  - Verify the deployment configuration was generated
+"@
+            throw $errorMessage
         }
 
         # Load deployment config
         try {
             $DeploymentConfig = Get-Content -Path "./Generated/deploymentconfig.g.yaml" | ConvertFrom-Yaml
-            if ($null -eq $DeploymentConfig.Authentications) {
-                Write-Host "Error: No authentication configurations found in deployment config"
-                Write-Host "Hints:"
-                Write-Host "  - Check if authentications are defined in the source config"
-                Write-Host "  - Verify the generation process included authentications"
-                Write-Host "  - Ensure the deployment config format is correct"
-                exit 1
-            }
         }
         catch {
-            Write-Host "Error: Failed to load deployment configuration"
-            Write-Host "Hints:"
-            Write-Host "  - Check if deploymentconfig.g.yaml is valid YAML"
-            Write-Host "  - Verify the file is not corrupted"
-            Write-Host "  - Ensure the configuration format is correct"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
+            $errorMessage = @"
+Error: Failed to load deployment configuration
+Function: Deploy-PermsAws
+Hints:
+  - Check if deploymentconfig.g.yaml is valid YAML
+  - Verify the file is not corrupted
+  - Ensure the configuration format is correct
+Error Details: $($_.Exception.Message)
+"@
+            throw $errorMessage
+        }
+
+
+        if ($null -eq $DeploymentConfig.Authentications) {
+            $errorMessage = @"
+Error: No authentication configurations found in deployment config
+Function: Deploy-PermsAws
+Hints:
+  - Check if authentications are defined in the source config
+  - Verify the generation process included authentications
+  - Ensure the deployment config format is correct
+"@
+            throw $errorMessage
         }
 
         # Process authentication stacks
@@ -146,74 +133,65 @@ function Deploy-PermsAws {
             $AuthStackName = $Config.SystemKey + "---" + $Name
             Write-LzAwsVerbose "Processing auth stack: $AuthStackName"
 
-            try {
-                $AuthStackOutputs = Get-StackOutputs $AuthStackName
-                if ($null -eq $AuthStackOutputs["UserPoolId"] -or 
-                    $null -eq $AuthStackOutputs["UserPoolClientId"] -or 
-                    $null -eq $AuthStackOutputs["IdentityPoolId"] -or 
-                    $null -eq $AuthStackOutputs["SecurityLevel"] -or 
-                    $null -eq $AuthStackOutputs["UserPoolArn"]) {
-                    Write-Host "Error: Missing required outputs from auth stack '$AuthStackName'"
-                    Write-Host "Hints:"
-                    Write-Host "  - Check if the auth stack was deployed successfully"
-                    Write-Host "  - Verify the auth stack template includes all required outputs"
-                    Write-Host "  - Ensure the auth resources were created properly"
-                    exit 1
-                }
+            $AuthStackOutputs = Get-StackOutputs $AuthStackName
 
-                $ParametersDict.Add($Name + "UserPoolIdParameter", $AuthStackOutputs["UserPoolId"])
-                $ParametersDict.Add($Name + "UserPoolClientIdParameter", $AuthStackOutputs["UserPoolClientId"])
-                $ParametersDict.Add($Name + "IdentityPoolIdParameter", $AuthStackOutputs["IdentityPoolId"])
-                $ParametersDict.Add($Name + "SecurityLevelParameter", $AuthStackOutputs["SecurityLevel"])
-                $ParametersDict.Add($Name + "UserPoolArnParameter", $AuthStackOutputs["UserPoolArn"])
+            if ($null -eq $AuthStackOutputs["UserPoolId"] -or 
+                $null -eq $AuthStackOutputs["UserPoolClientId"] -or 
+                $null -eq $AuthStackOutputs["IdentityPoolId"] -or 
+                $null -eq $AuthStackOutputs["SecurityLevel"] -or 
+                $null -eq $AuthStackOutputs["UserPoolArn"]) {
+                $errorMessage = @"
+Error: Missing required outputs from auth stack '$AuthStackName'
+Function: Deploy-PermsAws
+Hints:
+  - Check if the auth stack was deployed successfully
+  - Verify the auth stack template includes all required outputs
+  - Ensure the auth resources were created properly
+"@
+                throw $errorMessage
             }
-            catch {
-                Write-Host "Error: Failed to process auth stack '$AuthStackName'"
-                Write-Host "Hints:"
-                Write-Host "  - Verify the auth stack exists and is deployed"
-                Write-Host "  - Check if you have permission to read stack outputs"
-                Write-Host "  - Ensure all required outputs are defined in the template"
-                Write-Host "Error Details: $($_.Exception.Message)"
-                exit 1
-            }
+
+            $ParametersDict.Add($Name + "UserPoolIdParameter", $AuthStackOutputs["UserPoolId"])
+            $ParametersDict.Add($Name + "UserPoolClientIdParameter", $AuthStackOutputs["UserPoolClientId"])
+            $ParametersDict.Add($Name + "IdentityPoolIdParameter", $AuthStackOutputs["IdentityPoolId"])
+            $ParametersDict.Add($Name + "SecurityLevelParameter", $AuthStackOutputs["SecurityLevel"])
+            $ParametersDict.Add($Name + "UserPoolArnParameter", $AuthStackOutputs["UserPoolArn"])
         }
 
         # Deploy the permissions stack
-        try {
-            $Parameters = ConvertTo-ParameterOverrides -parametersDict $ParametersDict
-            Write-LzAwsVerbose "Deploying the stack $StackName using profile $ProfileName" 
-            
-            sam deploy `
-                --template-file Templates/sam.perms.yaml `
-                --stack-name $StackName `
-                --parameter-overrides $Parameters `
-                --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND `
-                --profile $ProfileName
+        $Parameters = ConvertTo-ParameterOverrides -parametersDict $ParametersDict
+        Write-LzAwsVerbose "Deploying the stack $StackName using profile $ProfileName" 
+        
+        $result = sam deploy `
+            --template-file Templates/sam.perms.yaml `
+            --stack-name $StackName `
+            --parameter-overrides $Parameters `
+            --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND `
+            --region $Region `
+            --profile $ProfileName 2>&1
 
-            if ($LASTEXITCODE -ne 0) {
-                throw "SAM deployment failed with exit code $LASTEXITCODE"
-            }
+        $exitCode = $LASTEXITCODE
 
-            Write-Host "Successfully deployed permissions stack" -ForegroundColor Green
+        if ($exitCode -ne 0) {
+            $errorMessage = @"
+Error: SAM deployment failed
+Function: Deploy-PermsAws
+Hints:
+  - Check AWS CloudFormation console for detailed errors
+  - Verify you have required IAM permissions
+  - Ensure the template file exists: Templates/sam.perms.yaml
+  - Validate the template syntax and parameters
+Error Details: SAM deployment failed with exit code $exitCode
+Command Output: $($result | Out-String)
+"@
+            throw $errorMessage
         }
-        catch {
-            Write-Host "Error: Failed to deploy permissions stack"
-            Write-Host "Hints:"
-            Write-Host "  - Check AWS CloudFormation console for detailed errors"
-            Write-Host "  - Verify you have required IAM permissions"
-            Write-Host "  - Ensure the template file exists: Templates/sam.perms.yaml"
-            Write-Host "  - Validate the template syntax and parameters"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
-        }
+
+        Write-Host "Successfully deployed permissions stack" -ForegroundColor Green
     } 
     catch {
-        Write-Host "Error: An unexpected error occurred during permissions deployment"
-        Write-Host "Hints:"
-        Write-Host "  - Check the AWS CloudFormation console for stack status"
-        Write-Host "  - Verify all required AWS services are available"
-        Write-Host "  - Review AWS CloudTrail logs for detailed error information"
-        Write-Host "Error Details: $($_.Exception.Message)"
-        exit 1
+        Write-Host ($_.Exception.Message)
+        return $false
     }
+    return $true
 }

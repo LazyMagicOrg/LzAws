@@ -24,86 +24,71 @@ function Deploy-SystemAws {
     Write-LzAwsVerbose "Deploy-SystemAws"
 
     try {
-        # Deploy system resources first
-        try {
-            Write-LzAwsVerbose "Deploying system resources"
-            Deploy-SystemResourcesAws
-        }
-        catch {
-            Write-Host "Error: Failed to deploy system resources"
-            Write-Host "Hints:"
-            Write-Host "  - Check if system resources deployment completed successfully"
-            Write-Host "  - Verify AWS credentials and permissions"
-            Write-Host "  - Review system stack deployment logs"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
-        }
-
-        Write-LzAwsVerbose "Deploying system stack"  
-
-        $SystemConfig = Get-SystemConfig 
-        # Get-SystemConfig already handles exit 1 on failure
-
-        $Config = $SystemConfig.Config
-        if ($null -eq $Config) {
-            Write-Host "Error: System configuration is missing Config section"
-            Write-Host "Hints:"
-            Write-Host "  - Check if Config section exists in systemconfig.yaml"
-            Write-Host "  - Verify the configuration file structure"
-            Write-Host "  - Ensure all required configuration sections are present"
-            exit 1
-        }
-
-        $ProfileName = $Config.Profile
+        $null = Get-SystemConfig 
+        $ProfileName = $script:ProfileName
+        $Region = $script:Region
+        $Config = $script:Config
         $SystemKey = $Config.SystemKey
         $SystemSuffix = $Config.SystemSuffix
+        
+        # Deploy system resources first
+        Write-LzAwsVerbose "Deploying system resources"
+        Deploy-SystemResourcesAws
 
+        Write-LzAwsVerbose "Deploying system stack"  
         $StackName = $SystemKey + "---system"
 
         # Verify template exists
         if (-not (Test-Path -Path "Templates/sam.system.yaml" -PathType Leaf)) {
-            Write-Host "Error: Template file not found: Templates/sam.system.yaml"
-            Write-Host "Hints:"
-            Write-Host "  - Check if the template file exists in the Templates directory"
-            Write-Host "  - Verify the template file name is correct"
-            Write-Host "  - Ensure you are running from the correct directory"
-            exit 1
-        }
+            $errorMessage = @"
+Error: Template file not found: Templates/sam.system.yaml
+Function: Deploy-SystemAws
+Hints:
+  - Check if the template file exists in the Templates directory
+  - Verify the template file name is correct
+  - Ensure you are running from the correct directory
+"@
+            throw $errorMessage
+        } 
 
         # Deploy the system stack
-        try {
-            Write-LzAwsVerbose "Deploying the stack $StackName using profile $ProfileName" 
-            sam deploy `
-                --template-file Templates/sam.system.yaml `
-                --stack-name $StackName `
-                --parameter-overrides SystemKeyParameter=$SystemKey SystemSuffixParameter=$SystemSuffix `
-                --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND `
-                --profile $ProfileName
+        Write-LzAwsVerbose "Deploying the stack $StackName using profile $ProfileName" 
+        $result = sam deploy `
+            --template-file Templates/sam.system.yaml `
+            --stack-name $StackName `
+            --parameter-overrides SystemKeyParameter=$SystemKey SystemSuffixParameter=$SystemSuffix `
+            --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND `
+            --profile $ProfileName `
+            --region $Region 2>&1
 
-            if ($LASTEXITCODE -ne 0) {
-                throw "SAM deployment failed with exit code $LASTEXITCODE"
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) {
+            # Convert the result array to a single string for easier searching
+            $resultString = $result | Out-String
+            
+            # Check if the result contains "No changes to deploy" (case-insensitive)
+            if ($resultString -match "No changes to deploy") {
+                Write-LzAwsVerbose "No changes to deploy. Stack is up to date."
+            } else {
+                $errorMessage = @"
+Error: SAM deployment failed
+Function: Deploy-SystemAws
+Hints:
+  - Check AWS CloudFormation console for detailed errors
+  - Verify you have required IAM permissions
+  - Ensure the template syntax is correct
+  - Validate the parameter values
+Error Details: SAM deployment failed with exit code $exitCode
+Command Output: $resultString
+"@
+                throw $errorMessage
             }
-
-            Write-Host "Successfully deployed system stack" -ForegroundColor Green
-        }
-        catch {
-            Write-Host "Error: Failed to deploy system stack"
-            Write-Host "Hints:"
-            Write-Host "  - Check AWS CloudFormation console for detailed errors"
-            Write-Host "  - Verify you have required IAM permissions"
-            Write-Host "  - Ensure the template syntax is correct"
-            Write-Host "  - Validate the parameter values"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
         }
     }
     catch {
-        Write-Host "Error: An unexpected error occurred during system deployment"
-        Write-Host "Hints:"
-        Write-Host "  - Check the AWS CloudFormation console for stack status"
-        Write-Host "  - Verify all required AWS services are available"
-        Write-Host "  - Review AWS CloudTrail logs for detailed error information"
-        Write-Host "Error Details: $($_.Exception.Message)"
-        exit 1
+        Write-Host ($_.Exception.Message)
+        return $false
     }
+    Write-Host "Deploy-SystemAws completed"
+    return $true
 }

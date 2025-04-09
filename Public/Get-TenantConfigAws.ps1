@@ -22,6 +22,11 @@ function Get-TenantConfigAws {
     )
     
     Write-LzAwsVerbose "Generating kvs entries for tenant $TenantKey"  
+    Get-SystemConfig # sets script scopevariables
+    $Region = $script:Region
+    $Account = $script:Account    
+    $ProfileName = $script:ProfileName
+    $Config = $script:Config
 
     $TenantConfig = Get-TenantConfig $TenantKey
 

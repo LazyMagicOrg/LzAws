@@ -1,55 +1,59 @@
 function Update-KVSEntry {
-    param (
-        [Parameter(Mandatory = $true)]
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
         [string]$KvsARN,
-        
-        [Parameter(Mandatory = $true)]
+        [Parameter(Mandatory=$true)]
         [string]$Key,
-
-        [Parameter(Mandatory = $true)]
-        [string]$Value
+        [Parameter(Mandatory=$true)]
+        [string]$KvsEntryJson
     )
+
+    $Region = $script:Region
+    $ProfileName = $script:ProfileName
+
+    if ($null -eq $KvsARN -or $null -eq $Key -or $null -eq $KvsEntry) {
+        $errorMessage = @"
+Error: Required parameters are missing
+Function: Update-KVSEntry
+Hints:
+- KvsARN: $KvsARN
+- Key: $Key
+"@
+        throw $errorMessage
+    }
 
     try {
         # Retrieve the entire response object
-        try {
-            $Response = Get-CFKVKeyValueStore -KvsARN $KvsARN
-        }
-        catch {
-            Write-Host "Error: Failed to retrieve KVS store for ARN '$KvsARN'"
-            Write-Host "Hints:"
-            Write-Host "  - Check if the KVS ARN is valid"
-            Write-Host "  - Verify you have sufficient AWS permissions"
-            Write-Host "  - Ensure the KVS store exists and is accessible"
-            Write-Host "AWS Error: $($_.Exception.Message)"
-            Write-Error "Failed to retrieve KVS store for ARN '$KvsARN': $($_.Exception.Message)" -ErrorAction Stop
-        }
+        $Response = Get-CFKVKeyValueStore -KvsARN $KvsARN -ProfileName $ProfileName -Region $Region
+    } catch {
+        $errorMessage = @"
+Error: Failed to retrieve KVSKeyValueStore
+Function: Update-KVSEntry
+Hints:
+- Check if the KVS exists
+- Ensure you have sufficient AWS permissions
+"@
+        throw $errorMessage
+    }
         
-        # Extract just the ETag from the response
-        $ETag = $Response.ETag
+    # Extract just the ETag from the response
+    $ETag = $Response.ETag
 
+    try {
         # Pass that ETag to IfMatch
-        try {
-            $Response = Write-CFKVKey -KvsARN $KvsARN -Key $Key -Value $Value -IfMatch $ETag
-            Write-LzAwsVerbose "Successfully updated KVS entry for key: $Key"
-            return $Response
-        }
-        catch {
-            Write-Host "Error: Failed to update KVS entry for key '$Key'"
-            Write-Host "Hints:"
-            Write-Host "  - Check if the KVS store is accessible"
-            Write-Host "  - Verify the key and value are valid"
-            Write-Host "AWS Error: $($_.Exception.Message)"
-            Write-Error "Failed to update KVS entry for key '$Key': $($_.Exception.Message)" -ErrorAction Stop
-        }
-    }
-    catch {
-        Write-Host "Error: An unexpected error occurred while updating KVS entry"
-        Write-Host "Hints:"
-        Write-Host "  - Check AWS service status"
-        Write-Host "  - Verify all required parameters are valid"
-        Write-Host "  - Review AWS CloudTrail logs for details"
-        Write-Host "Error Details: $($_.Exception.Message)"
-        Write-Error "An unexpected error occurred while updating KVS entry: $($_.Exception.Message)" -ErrorAction Stop
-    }
+        $Response = Write-CFKVKey -KvsARN $KvsARN -Key $Key -Value $KvsEntryJson -IfMatch $ETag -ProfileName $ProfileName -Region $Region
+    } catch {
+        $errorMessage = @"
+Error: Failed to update KVS entry for key '$Key'
+Function: Update-KVSEntry
+Hints:
+- Check if the KVS exists
+- Ensure you have sufficient AWS permissions
+"@
+        throw $errorMessage
+    }   
+
+    Write-LzAwsVerbose "Successfully updated KVS entry for key '$Key'"
+
 }

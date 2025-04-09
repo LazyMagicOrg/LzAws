@@ -26,20 +26,22 @@ function Deploy-ServiceAws {
     Write-LzAwsVerbose "Starting service infrastructure deployment"  
     try {
         $SystemConfig = Get-SystemConfig 
-        # Get-SystemConfig already handles exit 1 on failure
-
+        $ProfileName = $script:ProfileName
+        $Region = $script:Region
         $Config = $SystemConfig.Config
         if ($null -eq $Config) {
-            Write-Host "Error: System configuration is missing Config section"
-            Write-Host "Hints:"
-            Write-Host "  - Check if Config section exists in systemconfig.yaml"
-            Write-Host "  - Verify the configuration file structure"
-            Write-Host "  - Ensure all required configuration sections are present"
-            exit 1
+            $errorMessage = @"
+Error: System configuration is missing Config section
+Function: Deploy-ServiceAws
+Hints:
+  - Check if Config section exists in systemconfig.yaml
+  - Verify the configuration file structure
+  - Ensure all required configuration sections are present
+"@
+            throw $errorMessage
         }
 
         $Environment = $Config.Environment
-        $ProfileName = $Config.Profile
         $SystemKey = $Config.SystemKey
         $SystemSuffix = $Config.SystemSuffix
 
@@ -49,19 +51,22 @@ function Deploy-ServiceAws {
         # Clean up existing artifacts
         try {
             Write-LzAwsVerbose "Removing existing S3 artifacts"
-            aws s3 rm s3://$ArtifactsBucket/system/ --recursive --profile $ProfileName
+            aws s3 rm s3://$ArtifactsBucket/system/ --recursive --profile $ProfileName --region $Region
             if ($LASTEXITCODE -ne 0) {
                 throw "Failed to remove existing S3 artifacts"
             }
         }
         catch {
-            Write-Host "Error: Failed to clean up existing S3 artifacts"
-            Write-Host "Hints:"
-            Write-Host "  - Check if you have permission to delete S3 objects"
-            Write-Host "  - Verify the S3 bucket exists and is accessible"
-            Write-Host "  - Ensure AWS credentials are valid"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
+            $errorMessage = @"
+Error: Failed to clean up existing S3 artifacts
+Function: Deploy-ServiceAws
+Hints:
+  - Check if you have permission to delete S3 objects
+  - Verify the S3 bucket exists and is accessible
+  - Ensure AWS credentials are valid
+Error Details: $($_.Exception.Message)
+"@
+            throw $errorMessage
         }
 
         # Build Lambda functions
@@ -75,40 +80,41 @@ function Deploy-ServiceAws {
             cd AWSTemplates
         }
         catch {
-            Write-Host "Error: Failed to build Lambda functions"
-            Write-Host "Hints:"
-            Write-Host "  - Check if .NET SDK is installed and up to date"
-            Write-Host "  - Verify all required NuGet packages are available"
-            Write-Host "  - Review build errors in the output"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
+            $errorMessage = @"
+Error: Failed to build Lambda functions
+Function: Deploy-ServiceAws
+Hints:
+  - Check if .NET SDK is installed and up to date
+  - Verify all required NuGet packages are available
+  - Review build errors in the output
+Error Details: $($_.Exception.Message)
+"@
+            throw $errorMessage
         }
 
         # Package SAM template
-        try {
-            if(Test-Path "sam.Service.packages.yaml") {
-                Remove-Item "sam.Service.packages.yaml"
-            }
-
-            Write-LzAwsVerbose "Packaging SAM template"
-            sam package --template-file Generated/sam.Service.g.yaml `
-                --output-template-file sam.Service.packaged.yaml `
-                --s3-bucket $ArtifactsBucket `
-                --s3-prefix system `
-                --profile $ProfileName
-
-            if ($LASTEXITCODE -ne 0) {
-                throw "SAM packaging failed"
-            }
+        if(Test-Path "sam.Service.packages.yaml") {
+            Remove-Item "sam.Service.packages.yaml"
         }
-        catch {
-            Write-Host "Error: Failed to package SAM template"
-            Write-Host "Hints:"
-            Write-Host "  - Check if the source template exists: Generated/sam.Service.g.yaml"
-            Write-Host "  - Verify S3 bucket permissions"
-            Write-Host "  - Ensure AWS credentials are valid"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
+
+        Write-LzAwsVerbose "Packaging SAM template"
+        sam package --template-file Generated/sam.Service.g.yaml `
+            --output-template-file sam.Service.packaged.yaml `
+            --s3-bucket $ArtifactsBucket `
+            --s3-prefix system `
+            --region $Region `
+            --profile $ProfileName
+
+        if ($LASTEXITCODE -ne 0) {
+            $errorMessage = @"
+Error: Failed to package SAM template
+Function: Deploy-ServiceAws
+Hints:
+    - Check if the source template exists: Generated/sam.Service.g.yaml
+    - Verify S3 bucket permissions
+    - Ensure AWS credentials are valid
+"@
+            throw $errorMessage            
         }
 
         # Upload templates to S3
@@ -118,7 +124,7 @@ function Deploy-ServiceAws {
             $Files = Get-ChildItem -Path . -Filter sam.*.yaml
             foreach ($File in $Files) {
                 $FileName = $File.Name
-                aws s3 cp $File.FullName s3://$ArtifactsBucket/system/$FileName --profile $ProfileName
+                aws s3 cp $File.FullName s3://$ArtifactsBucket/system/$FileName --region $Region --profile $ProfileName
                 if ($LASTEXITCODE -ne 0) {
                     throw "Failed to upload template: $FileName"
                 }
@@ -126,139 +132,132 @@ function Deploy-ServiceAws {
             Set-Location ..
         }
         catch {
-            Write-Host "Error: Failed to upload templates to S3"
-            Write-Host "Hints:"
-            Write-Host "  - Check if the Generated directory contains template files"
-            Write-Host "  - Verify S3 bucket permissions"
-            Write-Host "  - Ensure AWS credentials are valid"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
+            $errorMessage = @"
+Error: Failed to upload templates to S3
+Function: Deploy-ServiceAws
+Hints:
+  - Check if the Generated directory contains template files
+  - Verify S3 bucket permissions
+  - Ensure AWS credentials are valid
+Error Details: $($_.Exception.Message)
+"@
+            throw $errorMessage
         }
 
         # Build parameters for stack deployment
+        $ParametersDict = @{
+            "SystemKeyParameter" = $SystemKey
+            "EnvironmentParameter" = $Environment
+            "ArtifactsBucketParameter" = $ArtifactsBucket
+            "SystemSuffixParameter" = $SystemSuffix					
+        }
+
+        if(-not (Test-Path -Path "./Generated/deploymentconfig.g.yaml" -PathType Leaf)) {
+            $errorMessage = @"
+Error: deploymentconfig.g.yaml does not exist
+Function: Deploy-ServiceAws
+Hints:
+  - Run the generation step before deployment
+  - Check if the generation process completed successfully
+  - Verify the deployment configuration was generated
+"@
+            throw $errorMessage
+        }
+
         try {
-            $ParametersDict = @{
-                "SystemKeyParameter" = $SystemKey
-                "EnvironmentParameter" = $Environment
-                "ArtifactsBucketParameter" = $ArtifactsBucket
-                "SystemSuffixParameter" = $SystemSuffix					
-            }
-
-            if(-not (Test-Path -Path "./Generated/deploymentconfig.g.yaml" -PathType Leaf)) {
-                Write-Host "Error: deploymentconfig.g.yaml does not exist"
-                Write-Host "Hints:"
-                Write-Host "  - Run the generation step before deployment"
-                Write-Host "  - Check if the generation process completed successfully"
-                Write-Host "  - Verify the deployment configuration was generated"
-                exit 1
-            }
-
             $DeploymentConfig = Get-Content -Path "./Generated/deploymentconfig.g.yaml" | ConvertFrom-Yaml
-            if ($null -eq $DeploymentConfig.Authentications) {
-                Write-Host "Error: No authentication configurations found in deployment config"
-                Write-Host "Hints:"
-                Write-Host "  - Check if authentications are defined in the source config"
-                Write-Host "  - Verify the generation process included authentications"
-                Write-Host "  - Ensure the deployment config format is correct"
-                exit 1
-            }
-
-            $Authentications = $DeploymentConfig.Authentications
-            foreach($Authentication in $Authentications) {
-                $Name = $Authentication.Name
-                $AuthStackName = $Config.SystemKey + "---" + $Name
-                Write-LzAwsVerbose "Processing auth stack: $AuthStackName"
-
-                try {
-                    # Get auth stack outputs
-                    Write-LzAwsVerbose "Getting stack outputs for '$AuthStackName'"
-                    try {
-                        $AuthStackOutputDict = Get-StackOutputs $AuthStackName
-                        Write-LzAwsVerbose "Retrieved $($AuthStackOutputDict.Count) stack outputs"
-                        if ($null -eq $AuthStackOutputDict["UserPoolId"] -or $null -eq $AuthStackOutputDict["UserPoolClientId"] -or $null -eq $AuthStackOutputDict["SecurityLevel"]) {
-                            Write-Host "Error: Missing required outputs from auth stack '$AuthStackName'"
-                            Write-Host "Hints:"
-                            Write-Host "  - Check if the auth stack was deployed successfully"
-                            Write-Host "  - Verify the auth stack template includes all required outputs"
-                            Write-Host "  - Ensure the auth resources were created properly"
-                            exit 1
-                        }
-                    }
-                    catch {
-                        Write-Host "Error: Failed to get auth stack outputs"
-                        Write-Host "Hints:"
-                        Write-Host "  - Verify the auth stack exists"
-                        Write-Host "  - Check if you have permission to read stack outputs"
-                        Write-Host "  - Ensure the stack name is correct: $AuthStackName"
-                        Write-Host "Error Details: $($_.Exception.Message)"
-                        exit 1
-                    }
-
-                    $ParametersDict.Add($Name + "UserPoolIdParameter", $AuthStackOutputDict["UserPoolId"])
-                    $ParametersDict.Add($Name + "UserPoolClientIdParameter", $AuthStackOutputDict["UserPoolClientId"])
-                    $ParametersDict.Add($Name + "IdentityPoolIdParameter", $AuthStackOutputDict["IdentityPoolId"])
-                    $ParametersDict.Add($Name + "SecurityLevelParameter", $AuthStackOutputDict["SecurityLevel"])
-                    $ParametersDict.Add($Name + "UserPoolArnParameter", $AuthStackOutputDict["UserPoolArn"])
-                }
-                catch {
-                    Write-Host "Error: Failed to process auth stack '$AuthStackName'"
-                    Write-Host "Hints:"
-                    Write-Host "  - Verify the auth stack exists and is deployed"
-                    Write-Host "  - Check if you have permission to read stack outputs"
-                    Write-Host "  - Ensure all required outputs are defined in the template"
-                    Write-Host "Error Details: $($_.Exception.Message)"
-                    exit 1
-                }
-            }
         }
         catch {
-            Write-Host "Error: Failed to prepare stack parameters"
-            Write-Host "Hints:"
-            Write-Host "  - Check if deploymentconfig.g.yaml is valid YAML"
-            Write-Host "  - Verify the configuration format is correct"
-            Write-Host "  - Ensure all required parameters are present"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
+            $errorMessage = @"
+Error: No deployment config file found
+Function: Deploy-ServiceAws
+Hints:
+    - Run LazyMagic Generation to ensure deploymentconfig.g.yaml is generated
+    - Verify the generation process included authentications
+    - Ensure the deployment config format is correct
+"@
+            throw $errorMessage
         }
 
+        if ($null -eq $DeploymentConfig.Authentications) {
+            $errorMessage = @"
+Error: No authentication configurations found in deployment config
+Function: Deploy-ServiceAws
+Hints:
+  - Check if authentications are defined in the source config
+  - Verify the generation process included authentications
+  - Ensure the deployment config format is correct
+"@
+            throw $errorMessage
+        }
+
+        $Authentications = $DeploymentConfig.Authentications
+        foreach($Authentication in $Authentications) {
+            $Name = $Authentication.Name
+            $AuthStackName = $Config.SystemKey + "---" + $Name
+            Write-LzAwsVerbose "Processing auth stack: $AuthStackName"
+
+            # Get auth stack outputs
+            Write-LzAwsVerbose "Getting stack outputs for '$AuthStackName'"
+            $AuthStackOutputDict = Get-StackOutputs $AuthStackName
+            Write-LzAwsVerbose "Retrieved $($AuthStackOutputDict.Count) stack outputs"
+            if ($null -eq $AuthStackOutputDict["UserPoolId"] -or $null -eq $AuthStackOutputDict["UserPoolClientId"] -or $null -eq $AuthStackOutputDict["SecurityLevel"]) {
+                    $errorMessage = @"
+Error: Missing required outputs from auth stack '$AuthStackName'
+Function: Deploy-ServiceAws
+Hints:
+  - Check if the auth stack was deployed successfully
+  - Verify the auth stack template includes all required outputs
+  - Ensure the auth resources were created properly
+"@
+                throw $errorMessage
+            }
+
+            $ParametersDict.Add($Name + "UserPoolIdParameter", $AuthStackOutputDict["UserPoolId"])
+            $ParametersDict.Add($Name + "UserPoolClientIdParameter", $AuthStackOutputDict["UserPoolClientId"])
+            $ParametersDict.Add($Name + "IdentityPoolIdParameter", $AuthStackOutputDict["IdentityPoolId"])
+            $ParametersDict.Add($Name + "SecurityLevelParameter", $AuthStackOutputDict["SecurityLevel"])
+            $ParametersDict.Add($Name + "UserPoolArnParameter", $AuthStackOutputDict["UserPoolArn"])
+        }
         # Deploy the service stack
-        try {
-            Write-LzAwsVerbose "Deploying the stack $StackName using profile $ProfileName" 
-            $Parameters = ConvertTo-ParameterOverrides -parametersDict $ParametersDict
+        Write-LzAwsVerbose "Deploying the stack $StackName using profile $ProfileName" 
+        $Parameters = ConvertTo-ParameterOverrides -parametersDict $ParametersDict
 
-            sam deploy `
-                --template-file sam.Service.packaged.yaml `
-                --s3-bucket $ArtifactsBucket `
-                --stack-name $StackName `
-                --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM `
-                --parameter-overrides $Parameters `
-                --profile $ProfileName
+        $result = sam deploy `
+            --template-file sam.Service.packaged.yaml `
+            --s3-bucket $ArtifactsBucket `
+            --stack-name $StackName `
+            --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM `
+            --parameter-overrides $Parameters `
+            --region $Region `
+            --profile $ProfileName 2>&1
 
-            if ($LASTEXITCODE -ne 0) {
-                throw "SAM deployment failed with exit code $LASTEXITCODE"
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) {
+            if ($result -match "No changes to deploy") {
+                Write-LzAwsVerbose "No changes to deploy. Stack is up to date."
+            }   else {
+                $errorMessage = @"
+Error: SAM deployment failed
+Function: Deploy-ServiceAws
+Hints:
+  - Check AWS CloudFormation console for detailed errors
+  - Verify you have required IAM permissions
+  - Ensure the template syntax is correct
+  - Validate the parameter values
+Error Details: $result
+"@
+                throw $errorMessage
             }
+        }
 
-            Write-Host "Successfully deployed service stack" -ForegroundColor Green
-        }
-        catch {
-            Write-Host "Error: Failed to deploy service stack"
-            Write-Host "Hints:"
-            Write-Host "  - Check AWS CloudFormation console for detailed errors"
-            Write-Host "  - Verify you have required IAM permissions"
-            Write-Host "  - Ensure the template syntax is correct"
-            Write-Host "  - Validate the parameter values"
-            Write-Host "Error Details: $($_.Exception.Message)"
-            exit 1
-        }
+        Write-Host "Successfully deployed service stack" -ForegroundColor Green
     }
+
     catch {
-        Write-Host "Error: An unexpected error occurred during service deployment"
-        Write-Host "Hints:"
-        Write-Host "  - Check the AWS CloudFormation console for stack status"
-        Write-Host "  - Verify all required AWS services are available"
-        Write-Host "  - Review AWS CloudTrail logs for detailed error information"
-        Write-Host "Error Details: $($_.Exception.Message)"
-        exit 1
+        Write-Host ($_.Exception.Message)
+        return $false
     }
+    return $true
 }
 
