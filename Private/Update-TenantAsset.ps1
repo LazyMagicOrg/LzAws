@@ -17,40 +17,58 @@ function New-ImageThumbnail {
     )
 
     try {
-        # Load System.Drawing.Common assembly
-        Add-Type -AssemblyName System.Drawing.Common
-
-        # Load the source image
-        $sourceImage = [System.Drawing.Image]::FromFile($SourcePath)
+        # Check if running on macOS
+        $isMacOS = $IsMacOS -or ($PSVersionTable.OS -like "*Darwin*")
         
-        # Calculate new dimensions maintaining aspect ratio
-        $ratioX = $MaxWidth / $sourceImage.Width
-        $ratioY = $MaxHeight / $sourceImage.Height
-        $ratio = [Math]::Min($ratioX, $ratioY)
-        
-        $newWidth = [int]($sourceImage.Width * $ratio)
-        $newHeight = [int]($sourceImage.Height * $ratio)
+        if ($isMacOS) {
+            # Check if ImageMagick is installed
+            if (-not (Get-Command magick -ErrorAction SilentlyContinue)) {
+                throw "ImageMagick is not installed. Please install it using 'brew install imagemagick'"
+            }
 
-        # Create new bitmap for thumbnail
-        $thumbnail = New-Object System.Drawing.Bitmap($newWidth, $newHeight)
-        
-        # Create graphics object and set high quality settings
-        $graphics = [System.Drawing.Graphics]::FromImage($thumbnail)
-        $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-        $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-        $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-        $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+            # Use ImageMagick on macOS with the modern "magick" command
+            $magickArgs = @(
+                $SourcePath,
+                '-resize', "${MaxWidth}x${MaxHeight}>",
+                '-quality', '95',
+                $DestinationPath
+            )
+            
+            # Execute ImageMagick magick command
+            $result = & magick $magickArgs
+            if ($LASTEXITCODE -ne 0) {
+                throw "ImageMagick conversion failed with exit code $LASTEXITCODE"
+            }
+        }
+        else {
+            # Windows implementation remains the same
+            Add-Type -AssemblyName System.Drawing.Common
+            
+            $sourceImage = [System.Drawing.Image]::FromFile($SourcePath)
+            
+            $ratioX = $MaxWidth / $sourceImage.Width
+            $ratioY = $MaxHeight / $sourceImage.Height
+            $ratio = [Math]::Min($ratioX, $ratioY)
+            
+            $newWidth = [int]($sourceImage.Width * $ratio)
+            $newHeight = [int]($sourceImage.Height * $ratio)
 
-        # Draw the thumbnail
-        $graphics.DrawImage($sourceImage, 0, 0, $newWidth, $newHeight)
+            $thumbnail = New-Object System.Drawing.Bitmap($newWidth, $newHeight)
+            
+            $graphics = [System.Drawing.Graphics]::FromImage($thumbnail)
+            $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+            $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+            $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
 
-        # Save the thumbnail with high quality
-        $thumbnail.Save($DestinationPath, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+            $graphics.DrawImage($sourceImage, 0, 0, $newWidth, $newHeight)
 
-        # Clean up resources
-        $graphics.Dispose()
-        $thumbnail.Dispose()
-        $sourceImage.Dispose()
+            $thumbnail.Save($DestinationPath, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+
+            $graphics.Dispose()
+            $thumbnail.Dispose()
+            $sourceImage.Dispose()
+        }
 
         Write-LzAwsVerbose "Successfully generated thumbnail: $DestinationPath"
         return $true
@@ -63,6 +81,7 @@ Hints:
   - Check if the source image file exists and is accessible
   - Verify the image file is not corrupted
   - Ensure you have sufficient permissions to write to the destination
+  - On macOS, ensure ImageMagick v7+ is installed (brew install imagemagick)
 Error Details: $($_.Exception.Message)
 "@
         throw $errorMessage

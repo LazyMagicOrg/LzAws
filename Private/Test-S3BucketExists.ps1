@@ -6,7 +6,7 @@ function Test-S3BucketExists {
 
     $ProfileName = $script:ProfileName
     $Region = $script:Region
-
+      
     if ($null -eq $BucketName) {
         $errorMessage = @"
 Error: Bucket name is required

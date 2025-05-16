@@ -7,6 +7,7 @@ function Create-DynamoDbTable {
     $Region = $script:Region
     $ProfileName = $script:ProfileName
 
+    Write-LzAwsVerbose "Testing if table exists: $TableName in region $Region" 
     # Check if table exists
     try {
         $ExistingTable = Get-DDBTable -TableName $TableName -Region $Region -ErrorAction SilentlyContinue -ProfileName $ProfileName
@@ -76,7 +77,7 @@ Error Details: $($_.Exception.Message)
     try {
         do {
             Start-Sleep -Seconds 5
-            $TableStatus = (Get-DDBTable -TableName $TableName).TableStatus
+            $TableStatus = (Get-DDBTable -TableName $TableName -Region $Region -ErrorAction SilentlyContinue -ProfileName $ProfileName).TableStatus
         } while ($TableStatus -ne "ACTIVE")
     }
     catch {
