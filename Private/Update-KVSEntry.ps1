@@ -39,7 +39,7 @@ Hints:
         
     # Extract just the ETag from the response
     $ETag = $Response.ETag
-
+    Write-LzAwsVerbose ("ETag:" + $ETag + " Key: " + $Key + " Value:" + $KvsEntryJson)
     try {
         # Pass that ETag to IfMatch
         $Response = Write-CFKVKey -KvsARN $KvsARN -Key $Key -Value $KvsEntryJson -IfMatch $ETag -ProfileName $ProfileName -Region $Region
