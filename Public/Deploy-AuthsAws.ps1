@@ -145,6 +145,7 @@ Hints:
             # Build parameters for SAM deployment
             try {
                 $ParametersDict = @{
+                    "SystemSuffixParameter" = $Config.SystemSuffix
                     "SystemKeyParameter" = $SystemKey
                     "UserPoolNameParameter" = $Authenticator.Name
                     "CallBackURLParameter" = $Authenticator.CallBackURL
@@ -220,12 +221,9 @@ Hints:
 
             $Key = $Authenticator.Name
             $Value = @{
-                awsRegion = $Region
-                userPoolName = $Authenticator.Name 
-                userPoolId = $StackOutputs["UserPoolId"]
-                userPoolClientId = $StackOutputs["UserPoolClientId"]
-                userPoolSecurityLevel = $StackOutputs["SecurityLevel"]
-                identityPoolId = ""
+                MetadataUrl = $StackOutputs["MetadataUrl"]
+                HostedUIDomain = $StackOutputs["HostedUIDomain"]
+                ClientId = $StackOutputs["ClientId"]
             }
             $KvsEntry.$Key = $Value
         }
@@ -239,12 +237,15 @@ Error: Failed to convert JSON KvsEntry
 Function: Deploy-AuthsAws
 Hints:
   - Ensure the JSON data is valid
+  - Ensure the JSON data doesn't exceed 1024 bytes
 Error Details: $($_.Exception.Message)
 "@
             throw $errorMessage
         }
 
         $KvsEntryKey = "AuthConfigs"
+        Write-LzAwsVerbose "Calling Update-KVSEntry for key AuthConfigs"
+        Write-LzAwsVerbose ("KeyValueStoreArn: " + $KeyValueStoreArn)
         Update-KVSEntry $KeyValueStoreArn $KvsEntryKey $KvsEntryJson
         Write-LzAwsVerbose "Successfully updated KVS with authenticator configurations"
         Write-Host "Successfully deployed all authentication stacks" -ForegroundColor Green

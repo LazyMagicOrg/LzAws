@@ -44,6 +44,7 @@ Hints:
         }
 
         $SystemKey = $Config.SystemKey
+        $SystemSuffix = $Config.SystemSuffix
         $Environment = $Config.Environment
         $StackName = $SystemKey + "---policies" 
 
@@ -83,7 +84,7 @@ Hints:
         $result = sam deploy `
             --template-file Templates/sam.policies.yaml `
             --stack-name $StackName `
-            --parameter-overrides SystemKey=$SystemKey EnvironmentParameter=$Environment KeyValueStoreArnParameter=$KeyValueStoreArn `
+            --parameter-overrides SystemKey=$SystemKey SystemSuffixParameter=$SystemSuffix EnvironmentParameter=$Environment KeyValueStoreArnParameter=$KeyValueStoreArn `
             --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND `
             --region $Region `
             --profile $ProfileName 2>&1

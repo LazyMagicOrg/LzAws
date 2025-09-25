@@ -3,7 +3,7 @@
 # It handles module initialization, verbosity settings, and AWS module dependencies.
 
 # Module-scoped variables to track state
-$script:LzAwsVerbosePreference = $script:LzAwsVerbosePreference ?? "Continue"
+$script:LzAwsVerbosePreference = $script:LzAwsVerbosePreference ?? "SilentlyContinue"
 $script:ModulesInitialized = $false                  # Tracks if modules are initialized
 $ErrorView = "CategoryView"                          # Suppress call stack display
 
