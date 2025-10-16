@@ -82,7 +82,7 @@ Hints:
         behaviors = @()
     }
 
-    Write-Host "debug Get-TenantKVSEntry"
+    Write-LzAwsVerbose "Get-TenantKVSEntry"
     $BehaviorsHash = @{} + $SystemBehaviorsHash # clone
     $TenantBehaviorsHash = (Get-BehaviorsHashTable "{ts}" $Environment $Region $Tenant.Behaviors $ServiceStackOutputDict 1)
     

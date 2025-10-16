@@ -156,7 +156,7 @@ Hints:
         foreach($Api in $MyApis.Values) {
             # [path,assetType,apiname,region,env]
             $Region = if ($null -eq $Api.Region) { $MyRegion } else { $Api.Region }
-            $ApiId = $MyServiceStackOutputDict[($Api.ApiName + "Id")]
+            $ApiId = $MyServiceStackOutputDict[($Api.ApiName)]
             if ($null -eq $ApiId) {
                 $errorMessage = @"
 Error: API ID not found for API '$($Api.ApiName)'
@@ -166,6 +166,7 @@ Hints:
   - Verify the API name matches the stack output
   - Ensure the service stack has the API ID output
   - Review the CloudFormation stack outputs
+  - Check your systemconfig.yaml to see if you have listed a non-existent api
 "@
                 throw $errorMessage
             }

@@ -101,73 +101,6 @@ Hints:
             throw $errorMessage
         }
 
-        # Step 2.5: Prepare Docker package cache from NuGet cache
-        Write-LzAwsVerbose "Preparing Docker package cache from NuGet cache"
-        Write-Host "Preparing Docker package cache..."
-
-        # Project is in parent directory (Service)
-        $projectPath = "../Containers/$ContainerName/$ContainerName.csproj"
-        if (-not (Test-Path $projectPath)) {
-            $errorMessage = @"
-Error: Project file not found
-Function: Deploy-DockerAws
-Hints:
-  - Expected location: Service/Containers/$ContainerName/$ContainerName.csproj
-  - Verify the container name is correct
-  - Ensure the .csproj file exists
-"@
-            throw $errorMessage
-        }
-
-        # Look for parent Nuget.Config (e.g., _Dev/Nuget.Config)
-        # Starting from AWSTemplates, go up to Service, then _Dev
-        $parentNugetConfig = $null
-        $searchPath = Get-Location
-        for ($i = 0; $i -lt 4; $i++) {
-            $searchPath = Split-Path $searchPath -Parent
-            $candidatePath = Join-Path $searchPath "Nuget.Config"
-            if (Test-Path $candidatePath) {
-                $parentNugetConfig = $candidatePath
-                Write-LzAwsVerbose "Found parent Nuget.Config at: $parentNugetConfig"
-                break
-            }
-        }
-
-        # DockerPackages will be created in Service directory (parent of AWSTemplates)
-        $outputPath = "../DockerPackages"
-
-        # Prepare package cache using private helper function
-        try {
-            Prepare-DockerPackageCache -ProjectPath $projectPath -OutputPath $outputPath -NugetConfigPath $parentNugetConfig
-        }
-        catch {
-            $errorMessage = @"
-Error: Failed to prepare Docker package cache
-Function: Deploy-DockerAws
-Hints:
-  - Ensure dotnet is installed and in PATH
-  - Check that all project dependencies can be restored
-  - Verify NuGet cache is accessible
-Error Details: $($_.Exception.Message)
-"@
-            throw $errorMessage
-        }
-
-        # Verify DockerPackages folder was created
-        if (-not (Test-Path $outputPath)) {
-            $errorMessage = @"
-Error: DockerPackages folder was not created
-Function: Deploy-DockerAws
-Hints:
-  - The package preparation may have failed
-  - Check for errors in the output above
-  - Ensure NuGet cache is accessible
-"@
-            throw $errorMessage
-        }
-
-        Write-LzAwsVerbose "Docker package cache prepared successfully"
-
         # Step 3: Get system configuration
         Write-LzAwsVerbose "Loading system configuration"
         $SystemConfig = Get-SystemConfig
@@ -314,7 +247,46 @@ Error Details: $($_.Exception.Message)
             throw $errorMessage
         }
 
-        # Step 7: Build the Docker image
+        # Step 7: Prepare Docker packages
+        Write-LzAwsVerbose "Preparing Docker packages"
+        Write-Host "Preparing NuGet packages for Docker build..."
+        try {
+            $serviceDir = Split-Path $PWD -Parent
+            $prepareScriptPath = Join-Path $serviceDir "Prepare-DockerPackages.ps1"
+            if (Test-Path $prepareScriptPath) {
+                # Change to Service directory to run the script
+                Push-Location $serviceDir
+                try {
+                    # Project path relative to Service directory
+                    $projectPath = "Containers/$ContainerName/$ContainerName.csproj"
+                    & ./Prepare-DockerPackages.ps1 -ProjectPath $projectPath
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Prepare-DockerPackages script failed with exit code $LASTEXITCODE"
+                    }
+                    Write-LzAwsVerbose "Successfully prepared Docker packages"
+                }
+                finally {
+                    Pop-Location
+                }
+            } else {
+                Write-LzAwsVerbose "Warning: Prepare-DockerPackages.ps1 not found at $prepareScriptPath"
+                Write-Host "Warning: Prepare-DockerPackages.ps1 not found, using existing packages" -ForegroundColor Yellow
+            }
+        }
+        catch {
+            $errorMessage = @"
+Error: Failed to prepare Docker packages
+Function: Deploy-DockerAws
+Hints:
+  - Check if Prepare-DockerPackages.ps1 exists in the Service directory
+  - Ensure all required NuGet packages are available in the local cache
+  - Verify Directory.Packages.props has correct package versions
+Error Details: $($_.Exception.Message)
+"@
+            throw $errorMessage
+        }
+
+        # Step 8: Build the Docker image
         Write-LzAwsVerbose "Building Docker image from Service directory"
         Write-Host "Building Docker image '$ImageName'..."
         try {
@@ -335,12 +307,13 @@ Hints:
   - Ensure all required files are present in the build context
   - Review the build output for specific errors
   - Verify there is enough disk space for the build
+  - Try running Prepare-DockerPackages.ps1 manually first
 Error Details: $($_.Exception.Message)
 "@
             throw $errorMessage
         }
 
-        # Step 8: Tag the image for ECR
+        # Step 9: Tag the image for ECR
         Write-LzAwsVerbose "Tagging image for ECR"
         Write-Host "Tagging image for ECR..."
         try {
@@ -363,7 +336,7 @@ Error Details: $($_.Exception.Message)
             throw $errorMessage
         }
 
-        # Step 9: Push the image to ECR
+        # Step 10: Push the image to ECR
         Write-LzAwsVerbose "Pushing image to ECR"
         Write-Host "Pushing image to ECR (this may take a few minutes)..."
         try {
@@ -387,7 +360,7 @@ Error Details: $($_.Exception.Message)
             throw $errorMessage
         }
 
-        # Step 10: Verify the upload
+        # Step 11: Verify the upload
         Write-LzAwsVerbose "Verifying image in ECR"
         Write-Host "Verifying image in ECR..."
         try {

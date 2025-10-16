@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//mnt/c/Users/TimothyMay/repos/_Dev/MagicPets/Service/AWSTemplates/Templates/**)",
+      "Bash(pwsh:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

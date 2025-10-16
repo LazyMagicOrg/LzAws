@@ -78,12 +78,16 @@ Hints:
     $KvsArn = $ServiceStackOutputDict["KeyValueStoreArn"]
 
     # Process each domain in tenant config
+    # Note: This may include chunked entries (domain, domain-1, domain-2, etc.)
+    # where entries exceed 1024 bytes and are split across multiple KVS keys
     foreach($Property in $KvsEntries.PSObject.Properties) {
         $Domain = $Property.Name
         Write-LzAwsVerbose "Processing $Domain"
-        
+
         # Determine domain level (1 = example.com, 2 = sub.example.com)
-        $Level = ($Domain.ToCharArray() | Where-Object { $_ -eq '.' } | Measure-Object).Count
+        # For chunked entries (e.g., domain-1), strip suffix to get base domain
+        $BaseDomain = $Domain -replace '-\d+$', ''
+        $Level = ($BaseDomain.ToCharArray() | Where-Object { $_ -eq '.' } | Measure-Object).Count
         $KvsEntry = $Property.Value
 
         # Create asset buckets
@@ -110,6 +114,7 @@ Hints:
         }
 
         # Update KVS entry
+        # First remove old chunks to prevent orphaned entries
         Write-LzAwsVerbose "Creating/Updating KVS entry for: $Domain"
         $KvsEntryJson = $KvsEntry | ConvertTo-Json -Depth 10 -Compress
         Write-LzAwsVerbose ("Entry Length: " + $KvsEntryJson.Length)
@@ -117,6 +122,9 @@ Hints:
             Write-Host "Creating KVS entry for: $Domain"
             Write-Host ($KvsEntryJson | ConvertFrom-Json -Depth 10)
         } else {
+            # Clean up any existing chunks before writing new ones
+            Remove-KVSChunks -KvsARN $KvsArn -Domain $Domain
+            # Now write the new chunk(s)
             Update-KVSEntry -KvsARN $KvsArn -Key $Domain -KvsEntryJson $KvsEntryJson
         }
     }

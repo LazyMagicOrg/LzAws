@@ -252,6 +252,119 @@ Error Details: $result
         }
 
         Write-Host "Successfully deployed service stack" -ForegroundColor Green
+
+        # Update KVS with Events APIs configuration
+        Write-LzAwsVerbose "Retrieving service stack outputs for Events APIs"
+        try {
+            $ServiceStackOutputDict = Get-StackOutputs $StackName
+
+            # Build EventsApis KVS entry by discovering all *EventsApi outputs
+            $EventsApisEntry = @{}
+
+            # Find all stack outputs ending with "EventsApi"
+            foreach ($outputKey in $ServiceStackOutputDict.Keys) {
+                if ($outputKey -match '^(.+)EventsApi$') {
+                    $apiName = $outputKey
+                    $authOutputKey = "${apiName}Auth"
+
+                    # Check if corresponding *EventsApiAuth output exists
+                    if ($null -ne $ServiceStackOutputDict[$authOutputKey]) {
+                        $authConfig = $ServiceStackOutputDict[$authOutputKey]
+                        $wsUrl = $ServiceStackOutputDict[$apiName]
+
+                        # Convert API name to camelCase for resource key (e.g., TenantEventsApi -> tenantEvents)
+                        $resourceKey = $apiName -replace 'EventsApi$', 'Events'
+                        $resourceKey = $resourceKey.Substring(0,1).ToLower() + $resourceKey.Substring(1)
+
+                        $EventsApisEntry[$resourceKey] = @{
+                            authConfig = $authConfig
+                            wsUrl = $wsUrl
+                        }
+                        Write-LzAwsVerbose "Found $apiName with auth config '$authConfig': $wsUrl"
+                    }
+                }
+            }
+
+            # Update KVS with Events APIs if any were found
+            if ($EventsApisEntry.Count -gt 0) {
+                # Get KVS ARN from system stack
+                $SystemStackName = $SystemKey + "---system"
+                $SystemStackOutputDict = Get-StackOutputs $SystemStackName
+                $KeyValueStoreArn = $SystemStackOutputDict["KeyValueStoreArn"]
+
+                if ([string]::IsNullOrEmpty($KeyValueStoreArn)) {
+                    Write-LzAwsVerbose "Warning: KeyValueStoreArn not found, skipping Events APIs KVS update"
+                } else {
+                    $EventsApisJson = ConvertTo-JSON $EventsApisEntry -Depth 10 -Compress
+                    $KvsEntryKey = "EventsApis"
+
+                    Write-LzAwsVerbose "Updating KVS with Events APIs configuration"
+                    Update-KVSEntry $KeyValueStoreArn $KvsEntryKey $EventsApisJson
+                    Write-Host "Successfully updated KVS with Events APIs configuration" -ForegroundColor Green
+                }
+            } else {
+                Write-LzAwsVerbose "No Events APIs found in service stack outputs"
+            }
+        } catch {
+            Write-LzAwsVerbose "Warning: Failed to update EventsApis KVS entry: $($_.Exception.Message)"
+            # Don't fail deployment if KVS update fails
+        }
+
+        # Update log group retention policies for this stack using AWS CLI
+        Write-LzAwsVerbose "Checking CloudWatch log groups for stack '$StackName'"
+        try {
+            # Query log groups that contain the stack name
+            $logGroupsJson = aws logs describe-log-groups `
+                --query "logGroups[?contains(logGroupName, ``$StackName``)].{name:logGroupName,retention:retentionInDays}" `
+                --output json `
+                --profile $ProfileName `
+                --region $Region 2>&1
+
+            if ($LASTEXITCODE -ne 0) {
+                Write-LzAwsVerbose "Warning: Failed to query log groups: $logGroupsJson"
+            } else {
+                $logGroups = $logGroupsJson | ConvertFrom-Json
+
+                if ($logGroups.Count -eq 0) {
+                    Write-LzAwsVerbose "No log groups found for stack '$StackName'"
+                } else {
+                    Write-LzAwsVerbose "Found $($logGroups.Count) log group(s) for stack '$StackName'"
+                    $UpdatedCount = 0
+                    $SkippedCount = 0
+
+                    foreach ($logGroup in $logGroups) {
+                        if ($null -eq $logGroup.retention) {
+                            Write-LzAwsVerbose "Setting 1-day retention for: $($logGroup.name)"
+                            $result = aws logs put-retention-policy `
+                                --log-group-name $logGroup.name `
+                                --retention-in-days 1 `
+                                --profile $ProfileName `
+                                --region $Region 2>&1
+
+                            if ($LASTEXITCODE -eq 0) {
+                                $UpdatedCount++
+                                Write-LzAwsVerbose "Successfully set retention policy for: $($logGroup.name)"
+                            } else {
+                                Write-LzAwsVerbose "Warning: Failed to set retention for $($logGroup.name): $result"
+                            }
+                        } else {
+                            $SkippedCount++
+                            Write-LzAwsVerbose "Log group already has retention: $($logGroup.name) ($($logGroup.retention) days)"
+                        }
+                    }
+
+                    if ($UpdatedCount -gt 0) {
+                        Write-Host "Updated retention policy for $UpdatedCount log group(s) to 1 day" -ForegroundColor Green
+                    }
+                    if ($SkippedCount -gt 0) {
+                        Write-LzAwsVerbose "Skipped $SkippedCount log group(s) with existing retention policies"
+                    }
+                }
+            }
+        } catch {
+            Write-LzAwsVerbose "Warning: Failed to update log retention policies: $($_.Exception.Message)"
+            # Don't fail the deployment if log updates fail
+        }
     }
 
     catch {

@@ -98,11 +98,14 @@ Error Details: $($_.Exception.Message)
         throw $errorMessage
     }
 
-    # Create and append the tenant kvs entry
-    $TenantConfigOut[$TenantConfig.RootDomain] = $ProcessedTenant
-    $ProcessedTenantJson = $ProcessedTenant | ConvertTo-Json -Compress -Depth 10    
-    Write-LzAwsVerbose $ProcessedTenantJson
-    Write-LzAwsVerbose $ProcessedTenantJson.Length
+    # Create and append the tenant kvs entry (with chunking if needed)
+    $TenantChunks = Split-KVSEntry -Domain $TenantConfig.RootDomain -KvsEntry $ProcessedTenant
+    foreach ($ChunkKey in $TenantChunks.Keys) {
+        $TenantConfigOut[$ChunkKey] = $TenantChunks[$ChunkKey]
+        $ProcessedTenantJson = $TenantChunks[$ChunkKey] | ConvertTo-Json -Compress -Depth 10
+        Write-LzAwsVerbose "Tenant chunk '$ChunkKey': $ProcessedTenantJson"
+        Write-LzAwsVerbose "Tenant chunk '$ChunkKey' size: $($ProcessedTenantJson.Length) bytes"
+    }
 
     # GetAsset Names allows us to see the asset names that will be created for the tenant kvs entry
     $Assetnames = Get-AssetNames $ProcessedTenant $true
@@ -117,10 +120,17 @@ Error Details: $($_.Exception.Message)
     foreach($Subtenant in $TenantConfig.SubTenants.GetEnumerator()) {
         try {
             $ProcessedSubtenant = Get-SubtenantKVSEntry $ProcessedTenant $Subtenant.Value $Subtenant.Key $ServiceStackOutputDict
-            $TenantConfigOut[$Subtenant.Value.Subdomain + "." + $TenantConfig.RootDomain] = $ProcessedSubtenant
-            $ProcessedSubtenantJson = $ProcessedSubtenant | ConvertTo-Json -Compress -Depth 10  
-            Write-LzAwsVerbose $ProcessedSubtenantJson
-            Write-LzAwsVerbose $ProcessedSubtenantJson.Length
+            $SubtenantDomain = $Subtenant.Value.Subdomain + "." + $TenantConfig.RootDomain
+
+            # Apply chunking for subtenant entry
+            $SubtenantChunks = Split-KVSEntry -Domain $SubtenantDomain -KvsEntry $ProcessedSubtenant
+            foreach ($ChunkKey in $SubtenantChunks.Keys) {
+                $TenantConfigOut[$ChunkKey] = $SubtenantChunks[$ChunkKey]
+                $ProcessedSubtenantJson = $SubtenantChunks[$ChunkKey] | ConvertTo-Json -Compress -Depth 10
+                Write-LzAwsVerbose "Subtenant chunk '$ChunkKey': $ProcessedSubtenantJson"
+                Write-LzAwsVerbose "Subtenant chunk '$ChunkKey' size: $($ProcessedSubtenantJson.Length) bytes"
+            }
+
             $Subtenants += $ProcessedSubtenant
 
             $Assetnames = Get-AssetNames $ProcessedSubtenant 2 $true

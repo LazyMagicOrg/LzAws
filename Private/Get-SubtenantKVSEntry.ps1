@@ -82,7 +82,7 @@ Hints:
         throw $errorMessage
     }
     
-    Write-Host "debug Get-SubtenantKVSEntry"
+    Write-LzAwsVerbose "Get-SubtenantKVSEntry"
     $SubtenantBehaviorsHash = (Get-BehaviorsHashTable "{sts}" $ProcessedTenant.env $ProcessedTenant.region $Subtenant.Behaviors $ServiceStackOutputDict 2)
     if ($null -eq $SubtenantBehaviorsHash) {
         $errorMessage = @"

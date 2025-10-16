@@ -12,7 +12,7 @@ function Update-KVSEntry {
     $Region = $script:Region
     $ProfileName = $script:ProfileName
 
-    if ($null -eq $KvsARN -or $null -eq $Key -or $null -eq $KvsEntry) {
+    if ($null -eq $KvsARN -or $null -eq $Key -or $null -eq $KvsEntryJson) {
         $errorMessage = @"
 Error: Required parameters are missing
 Function: Update-KVSEntry

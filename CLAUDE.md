@@ -42,6 +42,7 @@ Deploy-PermsAws
 Deploy-AuthsAws
 
 # Deploy services (Lambda functions) (from Service/AwsTemplates folder)
+# Note: Also sets 1-day retention on CloudWatch log groups for this stack (uses AWS CLI)
 Deploy-ServiceAws -ServiceKey "myservice"
 
 # Deploy web application (from App's solution folder)
@@ -126,6 +127,15 @@ Get-TestError     # Retrieves test error
 - Tenant deployments require system deployment to be completed first
 - Use `Get-AwsCommands` to see all available commands
 - Use `Get-LzAwsHelp` for detailed help on any command
+
+### KVS Entry Chunking
+- CloudFront KVS entries are limited to 1024 bytes per value
+- When tenant/subtenant configs exceed this limit, they are automatically split into multiple chunks
+- Primary entry uses domain as key (e.g., `example.com`)
+- Overflow entries append `-N` suffix (e.g., `example.com-1`, `example.com-2`)
+- Each chunk (except the last) contains a `more` property pointing to the next chunk's key
+- See `KVS-CHUNKING.md` for detailed documentation
+- Test chunking with: `.\Tests\Test-KVSChunking.ps1`
 
 ## Detailed Development Tips for LLMs
 
@@ -218,10 +228,15 @@ Get-TestError     # Retrieves test error
 - Check that all AWS operations include profile and region parameters
 
 ### 12. Module Dependencies
-Required modules with minimum versions:
+
+**Required modules** (loaded on import):
 - `powershell-yaml`: 0.4.2
-- `AWS.Tools.Common`: 4.1.748
-- `AWS.Tools.S3`: 4.1.748
-- `AWS.Tools.CloudFormation`: 4.1.748
-- `AWS.Tools.CloudFrontKeyValueStore`: 4.1.748
-- `AWS.Tools.DynamoDBv2`: 4.1.136
+- `AWS.Tools.Common`: 5.0.70
+- `AWS.Tools.S3`: 5.0.70
+- `AWS.Tools.CloudFormation`: 5.0.70
+- `AWS.Tools.CloudFrontKeyValueStore`: 5.0.70
+- `AWS.Tools.DynamoDBv2`: 5.0.70
+- `AWS.Tools.SecurityToken`: 5.0.70
+
+**External dependencies:**
+- AWS CLI (for log group retention management in Deploy-ServiceAws)

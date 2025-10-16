@@ -130,8 +130,9 @@ Command Output: $($result | Out-String)
                 throw $errorMessage
             }
         }
-
-        Write-LzAwsVerbose "Tenant deployment completed successfully for $TenantKey"
+        else {
+            Write-LzAwsVerbose "Tenant deployment completed successfully for $TenantKey"
+        }
     }
     catch {
         Write-Host ($_.Exception.Message)

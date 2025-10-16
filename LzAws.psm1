@@ -48,40 +48,54 @@ function Write-LzAwsVerbose {
     }
 }
 
-# Function to remove any existing AWS modules to avoid conflicts
+# Function to check for and remove conflicting AWS modules
 function Remove-ConflictingAWSModules {
     [CmdletBinding()]
     param()
 
-    Write-LzAwsVerbose "Removing any conflicting AWS modules from session..."
-    
+    Write-LzAwsVerbose "Checking for conflicting AWS modules..."
+
+    # Check if AWSSDK.Core assembly is already loaded
+    $awssdkCore = [System.AppDomain]::CurrentDomain.GetAssemblies() |
+                  Where-Object { $_.GetName().Name -eq 'AWSSDK.Core' }
+
+    if ($awssdkCore) {
+        $loadedVersion = $awssdkCore.GetName().Version
+        Write-LzAwsVerbose "AWSSDK.Core version $loadedVersion is already loaded in AppDomain"
+    }
+
     # Remove AWS modules from current session
+    $removed = @()
     Get-Module | Where-Object {
-        $_.Name -like 'AWS*' -or 
-        $_.Name -like 'AWSPowerShell*' -or 
+        $_.Name -like 'AWS*' -or
+        $_.Name -like 'AWSPowerShell*' -or
         $_.Name -like 'AWS.Tools.*'
     } | ForEach-Object {
         Write-LzAwsVerbose "Removing module from session: $($_.Name)"
         Remove-Module -Name $_.Name -Force -ErrorAction SilentlyContinue
+        $removed += $_.Name
     }
 
-    # Force garbage collection
-    [System.GC]::Collect()
-    [System.GC]::WaitForPendingFinalizers()
-    
-    Write-LzAwsVerbose "Finished removing AWS modules from session"
+    if ($removed.Count -gt 0) {
+        Write-LzAwsVerbose "Removed $($removed.Count) module(s): $($removed -join ', ')"
+        # Force garbage collection
+        [System.GC]::Collect()
+        [System.GC]::WaitForPendingFinalizers()
+    }
+
+    Write-LzAwsVerbose "Finished checking for conflicting AWS modules"
 }
 
 # Define required AWS modules and their minimum versions
 $script:ModuleRequirements = [ordered]@{
     'powershell-yaml' = '0.4.2'
-    'AWS.Tools.Common' = '4.1.748'
-    'AWS.Tools.Installer' = '1.0.2.5'   
-    'AWS.Tools.SecurityToken' = '4.1.748'
-    'AWS.Tools.S3' = '4.1.748'
-    'AWS.Tools.CloudFormation' = '4.1.748'
-    'AWS.Tools.CloudFrontKeyValueStore' = '4.1.748'
-    'AWS.Tools.DynamoDBv2' = '4.1.136'
+    'AWS.Tools.Common' = '5.0.70'
+    'AWS.Tools.Installer' = '1.0.2.5'
+    'AWS.Tools.SecurityToken' = '5.0.70'
+    'AWS.Tools.S3' = '5.0.70'
+    'AWS.Tools.CloudFormation' = '5.0.70'
+    'AWS.Tools.CloudFrontKeyValueStore' = '5.0.70'
+    'AWS.Tools.DynamoDBv2' = '5.0.70'
 }
 
 # Function to import a single AWS module
@@ -152,12 +166,55 @@ function Initialize-LzAwsModules {
 function Reset-LzAwsModules {
     [CmdletBinding()]
     param()
-    
+
     Write-LzAwsVerbose "Resetting AWS modules..."
     $script:ModulesInitialized = $false
     Remove-ConflictingAWSModules
     Initialize-LzAwsModules -Force
     Write-LzAwsVerbose "AWS modules reset completed"
+}
+
+# Function to import optional modules on demand
+function Import-OptionalModule {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$ModuleName
+    )
+
+    if (-not $script:OptionalModules.ContainsKey($ModuleName)) {
+        Write-LzAwsVerbose "Module $ModuleName is not in optional modules list"
+        return $false
+    }
+
+    # Check if already loaded
+    if (Get-Module -Name $ModuleName) {
+        Write-LzAwsVerbose "Module $ModuleName already loaded"
+        return $true
+    }
+
+    try {
+        Write-LzAwsVerbose "Loading optional module: $ModuleName"
+        $minVersion = $script:OptionalModules[$ModuleName]
+
+        # Check if module needs to be installed/updated
+        $installedModule = Get-Module -Name $ModuleName -ListAvailable |
+                          Sort-Object Version -Descending |
+                          Select-Object -First 1
+
+        if (-not $installedModule -or $installedModule.Version -lt $minVersion) {
+            Write-LzAwsVerbose "Installing/updating $ModuleName to minimum version $minVersion..."
+            Install-Module -Name $ModuleName -MinimumVersion $minVersion -Force -AllowClobber -Scope CurrentUser
+        }
+
+        Import-Module -Name $ModuleName -MinimumVersion $minVersion -Force -DisableNameChecking -ErrorAction Stop
+        Write-LzAwsVerbose "Successfully loaded optional module: $ModuleName"
+        return $true
+    }
+    catch {
+        Write-LzAwsVerbose "Warning: Failed to load optional module $ModuleName. Error: $_"
+        return $false
+    }
 }
 
 # Initialize modules when the module is imported
