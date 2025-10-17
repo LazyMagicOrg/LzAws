@@ -89,13 +89,13 @@ function Remove-ConflictingAWSModules {
 # Define required AWS modules and their minimum versions
 $script:ModuleRequirements = [ordered]@{
     'powershell-yaml' = '0.4.2'
-    'AWS.Tools.Common' = '5.0.70'
+    'AWS.Tools.Common' = '5.0'
     'AWS.Tools.Installer' = '1.0.2.5'
-    'AWS.Tools.SecurityToken' = '5.0.70'
-    'AWS.Tools.S3' = '5.0.70'
-    'AWS.Tools.CloudFormation' = '5.0.70'
-    'AWS.Tools.CloudFrontKeyValueStore' = '5.0.70'
-    'AWS.Tools.DynamoDBv2' = '5.0.70'
+    'AWS.Tools.SecurityToken' = '5.0'
+    'AWS.Tools.S3' = '5.0'
+    'AWS.Tools.CloudFormation' = '5.0'
+    'AWS.Tools.CloudFrontKeyValueStore' = '5.0'
+    'AWS.Tools.DynamoDBv2' = '5.0'
 }
 
 # Function to import a single AWS module

@@ -48,17 +48,31 @@ Hints:
 
 	# Load System level configuration properties we process
 	$CurrentProfile = Get-AWSCredential
+
+	# Get region from config - Get-AWSCredential doesn't return region
+	$Region = $Config.Region
+	if ([string]::IsNullOrWhiteSpace($Region)) {
+		$errorMessage = @"
+Error: Region not specified in systemconfig.yaml
+Function: Get-SystemConfig
+Hints:
+  - Add a 'Region' property to your systemconfig.yaml file
+  - Example: Region: us-east-1
+"@
+		throw $errorMessage
+	}
+
 	$Value = @{
 		Config = $Config
-		Account = $CurrentProfile.accountId
-		Region = $CurrentProfile.region
+		Account = $CurrentProfile.AccountId
+		Region = $Region
 		ProfileName = $ProfileName
 	}
-	
+
 	# Create module level variables for use in other module functions called after this function
 	$script:Config = $Config
-	$script:Account = $CurrentProfile.accountId
-	$script:Region = $CurrentProfile.region
+	$script:Account = $CurrentProfile.AccountId
+	$script:Region = $Region
 	$script:ProfileName = $ProfileName
 	
 	return $Value
