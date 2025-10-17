@@ -247,40 +247,39 @@ Error Details: $($_.Exception.Message)
             throw $errorMessage
         }
 
-        # Step 7: Prepare Docker packages
-        Write-LzAwsVerbose "Preparing Docker packages"
-        Write-Host "Preparing NuGet packages for Docker build..."
+        # Step 7: Synchronize Docker packages
+        Write-LzAwsVerbose "Synchronizing Docker packages using Sync-DockerPackages function"
+        Write-Host "Synchronizing NuGet packages for Docker build..."
         try {
             $serviceDir = Split-Path $PWD -Parent
-            $prepareScriptPath = Join-Path $serviceDir "Prepare-DockerPackages.ps1"
-            if (Test-Path $prepareScriptPath) {
-                # Change to Service directory to run the script
-                Push-Location $serviceDir
-                try {
-                    # Project path relative to Service directory
-                    $projectPath = "Containers/$ContainerName/$ContainerName.csproj"
-                    & ./Prepare-DockerPackages.ps1 -ProjectPath $projectPath
-                    if ($LASTEXITCODE -ne 0) {
-                        throw "Prepare-DockerPackages script failed with exit code $LASTEXITCODE"
-                    }
-                    Write-LzAwsVerbose "Successfully prepared Docker packages"
+
+            # Change to Service directory to run the function
+            Push-Location $serviceDir
+            try {
+                # Project path relative to Service directory
+                $projectPath = "Containers/$ContainerName/$ContainerName.csproj"
+
+                # Call the module function directly
+                $syncResult = Sync-DockerPackages -ProjectPath $projectPath
+
+                if (-not $syncResult) {
+                    throw "Sync-DockerPackages function returned false"
                 }
-                finally {
-                    Pop-Location
-                }
-            } else {
-                Write-LzAwsVerbose "Warning: Prepare-DockerPackages.ps1 not found at $prepareScriptPath"
-                Write-Host "Warning: Prepare-DockerPackages.ps1 not found, using existing packages" -ForegroundColor Yellow
+                Write-LzAwsVerbose "Successfully synchronized Docker packages"
+            }
+            finally {
+                Pop-Location
             }
         }
         catch {
             $errorMessage = @"
-Error: Failed to prepare Docker packages
+Error: Failed to synchronize Docker packages
 Function: Deploy-DockerAws
 Hints:
-  - Check if Prepare-DockerPackages.ps1 exists in the Service directory
   - Ensure all required NuGet packages are available in the local cache
   - Verify Directory.Packages.props has correct package versions
+  - Check that dotnet SDK is installed and accessible
+  - Try running: Sync-DockerPackages -ProjectPath "Containers/$ContainerName/$ContainerName.csproj"
 Error Details: $($_.Exception.Message)
 "@
             throw $errorMessage
@@ -292,7 +291,7 @@ Error Details: $($_.Exception.Message)
         try {
             # Docker build context must be Service directory (parent of AWSTemplates)
             # Run from parent directory with -f flag to specify Dockerfile location
-            $buildResult = docker build -f $dockerfilePath -t $ImageName .. 2>&1
+            $buildResult = docker build -f $dockerfilePath --build-arg ContainerName=$ContainerName -t $ImageName .. 2>&1
             if ($LASTEXITCODE -ne 0) {
                 throw "Docker build failed: $buildResult"
             }
@@ -307,7 +306,7 @@ Hints:
   - Ensure all required files are present in the build context
   - Review the build output for specific errors
   - Verify there is enough disk space for the build
-  - Try running Prepare-DockerPackages.ps1 manually first
+  - Try running: Sync-DockerPackages -ProjectPath "Containers/$ContainerName/$ContainerName.csproj"
 Error Details: $($_.Exception.Message)
 "@
             throw $errorMessage

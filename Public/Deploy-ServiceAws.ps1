@@ -3,7 +3,7 @@
     Deploys service infrastructure and resources to AWS
 .DESCRIPTION
     Deploys or updates service infrastructure in AWS using CloudFormation/SAM templates.
-    This includes deploying Lambda functions, configuring authentication resources,
+    This includes configuring authentication resources,
     and setting up other required AWS services.
 .PARAMETER None
     This cmdlet does not accept any parameters. It uses system configuration files
@@ -15,7 +15,6 @@
     - Requires valid AWS credentials and appropriate permissions
     - Must be run from the AWSTemplates directory
     - Requires system configuration files and SAM templates
-    - Will package and upload Lambda functions
     - Will configure the use of authentication resources created with Deploy-AuthsAws
 .OUTPUTS
     None
@@ -64,29 +63,6 @@ Hints:
   - Check if you have permission to delete S3 objects
   - Verify the S3 bucket exists and is accessible
   - Ensure AWS credentials are valid
-Error Details: $($_.Exception.Message)
-"@
-            throw $errorMessage
-        }
-
-        # Build Lambda functions
-        try {
-            Write-LzAwsVerbose "Building Lambda functions"
-            cd ..
-            dotnet build -c Release
-            if ($LASTEXITCODE -ne 0) {
-                throw "Lambda build failed"
-            }
-            cd AWSTemplates
-        }
-        catch {
-            $errorMessage = @"
-Error: Failed to build Lambda functions
-Function: Deploy-ServiceAws
-Hints:
-  - Check if .NET SDK is installed and up to date
-  - Verify all required NuGet packages are available
-  - Review build errors in the output
 Error Details: $($_.Exception.Message)
 "@
             throw $errorMessage
