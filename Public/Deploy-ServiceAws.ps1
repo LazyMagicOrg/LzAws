@@ -237,18 +237,32 @@ Error Details: $result
             # Build EventsApis KVS entry by discovering all *EventsApi outputs
             $EventsApisEntry = @{}
 
-            # Find all stack outputs ending with "EventsApi"
+            # Find all stack outputs ending with "EventsApiApiKey"
             foreach ($outputKey in $ServiceStackOutputDict.Keys) {
-                if ($outputKey -match '^(.+)EventsApi$') {
-                    $apiName = $outputKey
+                Write-LzAwsVerbose "stack output key: $outputKey"
+                if ($outputKey -match '^(.+)EventsApiApiKey$') {
+                    # Extract base name (e.g., "ConsumerEventsApiApiKey" -> "ConsumerEventsApi")
+                    $apiName = $matches[1] + "EventsApi"
                     $authOutputKey = "${apiName}Auth"
+                    $httpDomainKey = "${apiName}Domain"
 
                     # Check if corresponding *EventsApiAuth output exists
                     if ($null -ne $ServiceStackOutputDict[$authOutputKey]) {
                         $authConfig = $ServiceStackOutputDict[$authOutputKey]
-                        $wsUrl = $ServiceStackOutputDict[$apiName]
+                        $httpDomain = $ServiceStackOutputDict[$httpDomainKey]
 
-                        # Convert API name to camelCase for resource key (e.g., TenantEventsApi -> tenantEvents)
+                        # Prepend websocket protocol if missing
+                        if (-not [string]::IsNullOrEmpty($httpDomain)) {
+                            if (-not ($httpDomain -match '^wss?://')) {
+                                $wsUrl = "wss://$httpDomain"
+                            } else {
+                                $wsUrl = $httpDomain
+                            }
+                        } else {
+                            $wsUrl = $null
+                        }
+
+                        # Convert API name to camelCase for resource key (e.g., ConsumerEventsApi -> consumerEvents)
                         $resourceKey = $apiName -replace 'EventsApi$', 'Events'
                         $resourceKey = $resourceKey.Substring(0,1).ToLower() + $resourceKey.Substring(1)
 
