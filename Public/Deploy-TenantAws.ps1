@@ -87,15 +87,26 @@ Hints:
             "RootDomainParameter" = $RootDomain
             "HostedZoneIdParameter" = $HostedZoneId
             "AcmCertificateArnParameter" = $AcmCertificateArn
+        }
 
-            # CFPolicyStack values
-            "OriginRequestPolicyIdParameter" = $PolicyStackOutputDict["OriginRequestPolicyId"]
-            "CachePolicyIdParameter" = $PolicyStackOutputDict["CachePolicyId"]
-            "CacheByHeaderPolicyIdParameter" = $PolicyStackOutputDict["CacheByHeaderPolicyId"]
-            "ApiCachePolicyIdParameter" = $PolicyStackOutputDict["ApiCachePolicyId"]
-            "AuthConfigFunctionArnParameter" = $PolicyStackOutputDict["AuthConfigFunctionArn"]
-            "RequestFunctionArnParameter" = $PolicyStackOutputDict["RequestFunctionArn"]
-            "ApiRequestFunctionArnParameter" = $PolicyStackOutputDict["ApiRequestFunctionArn"]
+        # Dynamically add all *PolicyId outputs from PolicyStackOutputDict
+        Write-LzAwsVerbose "Collecting PolicyId parameters from policy stack outputs"
+        foreach ($Key in $PolicyStackOutputDict.Keys) {
+            if ($Key -like "*PolicyId") {
+                $ParameterName = $Key + "Parameter"
+                $ParametersDict[$ParameterName] = $PolicyStackOutputDict[$Key]
+                Write-LzAwsVerbose "Added parameter: $ParameterName = $($PolicyStackOutputDict[$Key])"
+            }
+        }
+
+        # Dynamically add all *FunctionArn outputs from PolicyStackOutputDict
+        Write-LzAwsVerbose "Collecting FunctionArn parameters from policy stack outputs"
+        foreach ($Key in $PolicyStackOutputDict.Keys) {
+            if ($Key -like "*FunctionArn") {
+                $ParameterName = $Key + "Parameter"
+                $ParametersDict[$ParameterName] = $PolicyStackOutputDict[$Key]
+                Write-LzAwsVerbose "Added parameter: $ParameterName = $($PolicyStackOutputDict[$Key])"
+            }
         }
 
         # Deploy the stack using SAM CLI

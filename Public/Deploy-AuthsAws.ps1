@@ -220,11 +220,35 @@ Hints:
             }
 
             $Key = $Authenticator.Name
+
+            # Determine callback proxy domain for this authenticator
+            # Use first tenant's root domain to construct auth subdomain
+            $CallbackProxyDomain = $null
+            foreach($TenantKey in $Config.Tenants.Keys) {
+                $Tenant = $Config.Tenants[$TenantKey]
+                $RootDomain = $Tenant.RootDomain
+                if (-not [string]::IsNullOrEmpty($RootDomain)) {
+                    $CallbackProxyDomain = "$($Authenticator.Name).$RootDomain"
+                    break  # Use first tenant's domain
+                }
+            }
+
             $Value = @{
                 MetadataUrl = $StackOutputs["MetadataUrl"]
                 HostedUIDomain = $StackOutputs["HostedUIDomain"]
                 ClientId = $StackOutputs["ClientId"]
             }
+
+            # Add callback proxy settings if we have a domain
+            if (-not [string]::IsNullOrEmpty($CallbackProxyDomain)) {
+                $Value.useCallbackProxy = $true
+                $Value.callbackProxyDomain = $CallbackProxyDomain
+                Write-LzAwsVerbose "Callback proxy enabled for $Key - Domain: $CallbackProxyDomain"
+            } else {
+                $Value.useCallbackProxy = $false
+                Write-LzAwsVerbose "Callback proxy disabled for $Key - no tenant domain configured"
+            }
+
             $KvsEntry.$Key = $Value
         }
 
@@ -248,6 +272,57 @@ Error Details: $($_.Exception.Message)
         Write-LzAwsVerbose ("KeyValueStoreArn: " + $KeyValueStoreArn)
         Update-KVSEntry $KeyValueStoreArn $KvsEntryKey $KvsEntryJson
         Write-LzAwsVerbose "Successfully updated KVS with authenticator configurations"
+
+        # Create individual auth subdomain KVS entries for each tenant
+        Write-LzAwsVerbose "Creating auth subdomain KVS entries"
+        foreach($Authenticator in $Authenticators) {
+            $authname = $Authenticator.Name
+            $StackOutputs = Get-StackOutputs ($Config.SystemKey + "---" + $authname)
+
+            # Create KVS entry for each tenant's root domain
+            foreach($TenantKey in $Config.Tenants.Keys) {
+                $Tenant = $Config.Tenants[$TenantKey]
+                $RootDomain = $Tenant.RootDomain
+
+                if ([string]::IsNullOrEmpty($RootDomain)) {
+                    Write-LzAwsVerbose "Skipping tenant $TenantKey - no RootDomain configured"
+                    continue
+                }
+
+                # Create auth subdomain: {authname}.{rootdomain}
+                $AuthSubdomain = "$authname.$RootDomain"
+
+                # Create auth KVS entry
+                $AuthKvsEntry = @{
+                    type = "auth"
+                    authname = $authname
+                    HostedUIDomain = $StackOutputs["HostedUIDomain"]
+                    MetadataUrl = $StackOutputs["MetadataUrl"]
+                    ClientId = $StackOutputs["ClientId"]
+                }
+
+                try {
+                    $AuthKvsEntryJson = ConvertTo-JSON $AuthKvsEntry -Depth 10 -Compress
+                } catch {
+                    $errorMessage = @"
+Error: Failed to convert JSON for auth subdomain KVS entry
+Function: Deploy-AuthsAws
+Auth Subdomain: $AuthSubdomain
+Hints:
+  - Ensure the JSON data is valid
+  - Ensure the JSON data doesn't exceed 1024 bytes
+Error Details: $($_.Exception.Message)
+"@
+                    throw $errorMessage
+                }
+
+                Write-LzAwsVerbose "Creating KVS entry for auth subdomain: $AuthSubdomain"
+                Update-KVSEntry $KeyValueStoreArn $AuthSubdomain $AuthKvsEntryJson
+                Write-LzAwsVerbose "Successfully created KVS entry for $AuthSubdomain"
+            }
+        }
+        Write-LzAwsVerbose "Successfully created all auth subdomain KVS entries"
+
         Write-Host "Successfully deployed all authentication stacks" -ForegroundColor Green
     }
     catch {
