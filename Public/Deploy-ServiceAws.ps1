@@ -128,23 +128,12 @@ Error Details: $($_.Exception.Message)
             "SystemSuffixParameter" = $SystemSuffix					
         }
 
-        if(-not (Test-Path -Path "./Generated/deploymentconfig.g.yaml" -PathType Leaf)) {
-            $errorMessage = @"
-Error: deploymentconfig.g.yaml does not exist
-Function: Deploy-ServiceAws
-Hints:
-  - Run the generation step before deployment
-  - Check if the generation process completed successfully
-  - Verify the deployment configuration was generated
-"@
-            throw $errorMessage
-        }
-
-        try {
-            $DeploymentConfig = Get-Content -Path "./Generated/deploymentconfig.g.yaml" | ConvertFrom-Yaml
-        }
-        catch {
-            $errorMessage = @"
+        if(Test-Path -Path "./Generated/deploymentconfig.g.yaml" -PathType Leaf) {
+            try {
+                $DeploymentConfig = Get-Content -Path "./Generated/deploymentconfig.g.yaml" | ConvertFrom-Yaml
+            }
+            catch {
+                $errorMessage = @"
 Error: No deployment config file found
 Function: Deploy-ServiceAws
 Hints:
@@ -153,10 +142,10 @@ Hints:
     - Ensure the deployment config format is correct
 "@
             throw $errorMessage
-        }
+            }
 
-        if ($null -eq $DeploymentConfig.Authentications) {
-            $errorMessage = @"
+            if ($null -eq $DeploymentConfig.Authentications) {
+                $errorMessage = @"
 Error: No authentication configurations found in deployment config
 Function: Deploy-ServiceAws
 Hints:
@@ -164,20 +153,20 @@ Hints:
   - Verify the generation process included authentications
   - Ensure the deployment config format is correct
 "@
-            throw $errorMessage
-        }
+                throw $errorMessage
+            }
 
-        $Authentications = $DeploymentConfig.Authentications
-        foreach($Authentication in $Authentications) {
-            $Name = $Authentication.Name
-            $AuthStackName = $Config.SystemKey + "---" + $Name
-            Write-LzAwsVerbose "Processing auth stack: $AuthStackName"
+            $Authentications = $DeploymentConfig.Authentications
+            foreach($Authentication in $Authentications) {
+                $Name = $Authentication.Name
+                $AuthStackName = $Config.SystemKey + "---" + $Name
+                Write-LzAwsVerbose "Processing auth stack: $AuthStackName"
 
-            # Get auth stack outputs
-            Write-LzAwsVerbose "Getting stack outputs for '$AuthStackName'"
-            $AuthStackOutputDict = Get-StackOutputs $AuthStackName
-            Write-LzAwsVerbose "Retrieved $($AuthStackOutputDict.Count) stack outputs"
-            if ($null -eq $AuthStackOutputDict["UserPoolId"] -or $null -eq $AuthStackOutputDict["UserPoolClientId"] -or $null -eq $AuthStackOutputDict["SecurityLevel"]) {
+                # Get auth stack outputs
+                Write-LzAwsVerbose "Getting stack outputs for '$AuthStackName'"
+                $AuthStackOutputDict = Get-StackOutputs $AuthStackName
+                Write-LzAwsVerbose "Retrieved $($AuthStackOutputDict.Count) stack outputs"
+                if ($null -eq $AuthStackOutputDict["UserPoolId"] -or $null -eq $AuthStackOutputDict["UserPoolClientId"] -or $null -eq $AuthStackOutputDict["SecurityLevel"]) {
                     $errorMessage = @"
 Error: Missing required outputs from auth stack '$AuthStackName'
 Function: Deploy-ServiceAws
@@ -186,17 +175,32 @@ Hints:
   - Verify the auth stack template includes all required outputs
   - Ensure the auth resources were created properly
 "@
-                throw $errorMessage
-            }
+                    throw $errorMessage
+                }
 
-            $ParametersDict.Add($Name + "UserPoolIdParameter", $AuthStackOutputDict["UserPoolId"])
-            $ParametersDict.Add($Name + "UserPoolClientIdParameter", $AuthStackOutputDict["UserPoolClientId"])
-            $ParametersDict.Add($Name + "IdentityPoolIdParameter", $AuthStackOutputDict["IdentityPoolId"])
-            $ParametersDict.Add($Name + "SecurityLevelParameter", $AuthStackOutputDict["SecurityLevel"])
-            $ParametersDict.Add($Name + "UserPoolArnParameter", $AuthStackOutputDict["UserPoolArn"])
+                $ParametersDict.Add($Name + "UserPoolIdParameter", $AuthStackOutputDict["UserPoolId"])
+                $ParametersDict.Add($Name + "UserPoolClientIdParameter", $AuthStackOutputDict["UserPoolClientId"])
+                $ParametersDict.Add($Name + "IdentityPoolIdParameter", $AuthStackOutputDict["IdentityPoolId"])
+                $ParametersDict.Add($Name + "SecurityLevelParameter", $AuthStackOutputDict["SecurityLevel"])
+                $ParametersDict.Add($Name + "UserPoolArnParameter", $AuthStackOutputDict["UserPoolArn"])
+            }
         }
+
+        # Get system stack outputs and add to parameters
+        $SystemStackName = $SystemKey + "---system"
+        Write-LzAwsVerbose "Getting system stack outputs from '$SystemStackName'"
+        $SystemStackOutputDict = Get-StackOutputs $SystemStackName
+        Write-LzAwsVerbose "Retrieved $($SystemStackOutputDict.Count) outputs from system stack"
+        foreach ($OutputKey in $SystemStackOutputDict.Keys) {
+            $ParameterName = $OutputKey + "Parameter"
+            if (-not $ParametersDict.ContainsKey($ParameterName)) {
+                $ParametersDict.Add($ParameterName, $SystemStackOutputDict[$OutputKey])
+                Write-LzAwsVerbose "Added system stack output: $ParameterName"
+            }
+        }
+
         # Deploy the service stack
-        Write-LzAwsVerbose "Deploying the stack $StackName using profile $ProfileName" 
+        Write-LzAwsVerbose "Deploying the stack $StackName using profile $ProfileName"
         $Parameters = ConvertTo-ParameterOverrides -parametersDict $ParametersDict
 
         $result = sam deploy `
