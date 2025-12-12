@@ -120,6 +120,45 @@ Error Details: $($_.Exception.Message)
             throw $errorMessage
         }
 
+        # Upload ec2-setup folder as tar.gz if it exists
+        if (Test-Path -Path "./ec2-setup" -PathType Container) {
+            try {
+                Write-LzAwsVerbose "Creating ec2-setup.tar.gz from ec2-setup folder"
+                $Ec2SetupTarGz = "./ec2-setup.tar.gz"
+                if (Test-Path $Ec2SetupTarGz) {
+                    Remove-Item $Ec2SetupTarGz -Force
+                }
+                tar -czf $Ec2SetupTarGz -C ./ec2-setup .
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Failed to create ec2-setup.tar.gz"
+                }
+                
+                Write-LzAwsVerbose "Uploading ec2-setup.tar.gz to S3"
+                aws s3 cp $Ec2SetupTarGz s3://$ArtifactsBucket/ec2-setup.tar.gz --region $Region --profile $ProfileName
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Failed to upload ec2-setup.tar.gz"
+                }
+                
+                # Clean up local tar.gz file
+                Remove-Item $Ec2SetupTarGz -Force
+                Write-Host "Successfully uploaded ec2-setup.tar.gz to S3" -ForegroundColor Green
+            }
+            catch {
+                $errorMessage = @"
+Error: Failed to upload ec2-setup.tar.gz to S3
+Function: Deploy-ServiceAws
+Hints:
+  - Check if you have permission to upload to S3
+  - Verify the S3 bucket exists and is accessible
+  - Ensure the ec2-setup folder contains valid files
+  - Ensure tar is available on the system
+  - Ensure AWS credentials are valid
+Error Details: $($_.Exception.Message)
+"@
+                throw $errorMessage
+            }
+        }
+
         # Build parameters for stack deployment
         $ParametersDict = @{
             "SystemKeyParameter" = $SystemKey
@@ -199,9 +238,32 @@ Hints:
             }
         }
 
+        # Get template parameters and filter to only include valid parameters
+        Write-LzAwsVerbose "Reading template parameters from sam.Service.packaged.yaml"
+        $TemplateParameters = Get-TemplateParameters -TemplatePath "sam.Service.packaged.yaml"
+        Write-LzAwsVerbose "Template expects $($TemplateParameters.Count) parameters"
+
+        # Filter ParametersDict to only include parameters that exist in the template
+        $FilteredParametersDict = @{}
+        foreach ($Key in $ParametersDict.Keys) {
+            if ($TemplateParameters -contains $Key) {
+                $FilteredParametersDict[$Key] = $ParametersDict[$Key]
+                Write-LzAwsVerbose "Including parameter: $Key"
+            } else {
+                Write-LzAwsVerbose "Skipping parameter not in template: $Key"
+            }
+        }
+
+        # Check for missing required parameters (parameters in template without defaults)
+        foreach ($TemplateParam in $TemplateParameters) {
+            if (-not $FilteredParametersDict.ContainsKey($TemplateParam)) {
+                Write-LzAwsVerbose "Warning: Template parameter '$TemplateParam' not provided (may use default)"
+            }
+        }
+
         # Deploy the service stack
         Write-LzAwsVerbose "Deploying the stack $StackName using profile $ProfileName"
-        $Parameters = ConvertTo-ParameterOverrides -parametersDict $ParametersDict
+        $Parameters = ConvertTo-ParameterOverrides -parametersDict $FilteredParametersDict
 
         $result = sam deploy `
             --template-file sam.Service.packaged.yaml `

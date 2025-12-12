@@ -84,6 +84,7 @@ FunctionsToExport = @(
     'Get-TenantConfigAws',
     'Get-VersionAws',
     'Get-AssetsAws',
+    'Invoke-DockerComposeAws',
     'Set-Admin',
     'Sync-DockerPackages'
 )
