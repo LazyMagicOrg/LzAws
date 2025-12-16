@@ -81,6 +81,7 @@ FunctionsToExport = @(
     'Deploy-WebappAws',
     'Get-AwsCommands',
     'Get-CDNLogAws',
+    'Get-CertificateAws',
     'Get-TenantConfigAws',
     'Get-VersionAws',
     'Get-AssetsAws',
