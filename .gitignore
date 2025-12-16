@@ -1,0 +1,17 @@
+# IDEs
+/.idea/
+/.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# PowerShell
+*.ps1xml.bak
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
