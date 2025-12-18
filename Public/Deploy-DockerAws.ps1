@@ -4,42 +4,114 @@
 .DESCRIPTION
     Builds a Docker container image and pushes it to AWS Elastic Container Registry (ECR).
     This cmdlet prepares the NuGet package cache, builds the Docker image, and pushes it to ECR.
-    The ECR repository must already exist (created by Deploy-SystemAws).
+    
+    When run from AWSTemplates directory without -Path, uses the standard Service/Containers structure.
+    When -Path is specified, uses that path to find the Dockerfile (can be relative or absolute).
+    
+    Automatically uses docker buildx with --platform linux/amd64 when not running on x86_64 Linux.
 .PARAMETER ContainerName
-    The name of the container to build and deploy (e.g., "ChatAppRunner")
+    The name of the container to build and deploy (e.g., "ChatAppRunner").
+    If not specified when using -Path, defaults to the folder name containing the Dockerfile.
 .PARAMETER ImageTag
     The tag to apply to the Docker image. Defaults to "latest"
+.PARAMETER Path
+    Optional path to a folder containing a Dockerfile. Can be relative or absolute.
+    When specified, the build context is the folder containing the Dockerfile.
+    When specified, skips Sync-DockerPackages (assumes self-contained Dockerfile).
 .EXAMPLE
     Deploy-DockerAws -ContainerName "ChatAppRunner"
-    Builds and deploys the ChatAppRunner container with the "latest" tag
+    Builds and deploys the ChatAppRunner container from Service/Containers/ChatAppRunner
 .EXAMPLE
     Deploy-DockerAws -ContainerName "ChatAppRunner" -ImageTag "v1.0.0"
     Builds and deploys the ChatAppRunner container with a custom version tag
+.EXAMPLE
+    Deploy-DockerAws -Path ./Smartstore
+    Builds from a local Smartstore folder, using "smartstore" as the container name
+.EXAMPLE
+    Deploy-DockerAws -Path ./Smartstore -ContainerName "MyStore"
+    Builds from a local Smartstore folder with a custom container name
 .NOTES
     - Requires Docker Desktop to be running
     - Requires valid AWS credentials and appropriate permissions
-    - Must be run from the Service/AWSTemplates directory (like other Deploy-* commands)
-    - The ECR repository must exist (created by Deploy-SystemAws)
+    - When not using -Path, must be run from the Service/AWSTemplates directory
     - Uses systemconfig.yaml for AWS configuration
-    - Automatically prepares Docker package cache from NuGet cache
+    - Automatically uses docker buildx for cross-platform builds (non-x86_64 to linux/amd64)
 .OUTPUTS
     Boolean - Returns $true on success, $false on failure
 #>
 function Deploy-DockerAws {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory=$false)]
         [ValidateNotNullOrEmpty()]
         [string]$ContainerName,
 
         [Parameter(Mandatory=$false)]
         [ValidateNotNullOrEmpty()]
-        [string]$ImageTag = "latest"
+        [string]$ImageTag = "latest",
+
+        [Parameter(Mandatory=$false)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Path
     )
+
+    # Determine if we're using an external Dockerfile path
+    $useExternalPath = -not [string]::IsNullOrEmpty($Path)
+    
+    # If using external path, resolve it and derive ContainerName if not specified
+    if ($useExternalPath) {
+        # Resolve to absolute path
+        $resolvedPath = Resolve-Path -Path $Path -ErrorAction SilentlyContinue
+        if (-not $resolvedPath) {
+            # Path doesn't exist yet, try to resolve parent and construct
+            $resolvedPath = Join-Path (Get-Location) $Path
+        } else {
+            $resolvedPath = $resolvedPath.Path
+        }
+        
+        # Verify the path exists and contains a Dockerfile
+        if (-not (Test-Path $resolvedPath)) {
+            throw "Path not found: $Path (resolved to: $resolvedPath)"
+        }
+        
+        $dockerfilePath = Join-Path $resolvedPath "Dockerfile"
+        if (-not (Test-Path $dockerfilePath)) {
+            throw "Dockerfile not found at: $dockerfilePath"
+        }
+        
+        # If ContainerName not specified, derive from folder name
+        if ([string]::IsNullOrEmpty($ContainerName)) {
+            $ContainerName = Split-Path $resolvedPath -Leaf
+        }
+        
+        # Build context is the folder containing the Dockerfile
+        $buildContext = $resolvedPath
+    } else {
+        # Traditional mode - require ContainerName
+        if ([string]::IsNullOrEmpty($ContainerName)) {
+            throw "ContainerName is required when not using -Path parameter"
+        }
+    }
 
     Write-LzAwsVerbose "Starting Docker container deployment for '$ContainerName'"
 
     try {
+        # Step 0: Determine if we need to use buildx for cross-platform build
+        $useBuildx = $false
+        if ($IsMacOS) {
+            # macOS (ARM or Intel) targeting linux/amd64
+            $useBuildx = $true
+            Write-LzAwsVerbose "Detected macOS - will use docker buildx for linux/amd64 target"
+        } elseif ($IsLinux) {
+            # Check Linux architecture
+            $arch = & uname -m 2>&1
+            if ($arch -ne "x86_64") {
+                $useBuildx = $true
+                Write-LzAwsVerbose "Detected non-x86_64 Linux ($arch) - will use docker buildx for linux/amd64 target"
+            }
+        }
+        # Windows Docker Desktop typically targets linux/amd64 by default
+        
         # Step 1: Validate Docker is installed and running
         Write-LzAwsVerbose "Checking if Docker is installed and running"
         try {
@@ -70,27 +142,29 @@ Error Details: $($_.Exception.Message)
             throw $errorMessage
         }
 
-        # Step 2: Validate we're in the AWSTemplates directory with correct structure
-        Write-LzAwsVerbose "Validating AWSTemplates directory structure"
+        # Step 2: Validate directory structure (only when not using external path)
+        if (-not $useExternalPath) {
+            Write-LzAwsVerbose "Validating AWSTemplates directory structure"
 
-        # Check if we're in AWSTemplates folder
-        $currentDir = Get-Location
-        if ((Split-Path $currentDir -Leaf) -ne "AWSTemplates") {
-            $errorMessage = @"
-Error: Must be run from the AWSTemplates directory
+            # Check if we're in AWSTemplates folder
+            $currentDir = Get-Location
+            if ((Split-Path $currentDir -Leaf) -ne "AWSTemplates") {
+                $errorMessage = @"
+Error: Must be run from the AWSTemplates directory (or use -Path parameter)
 Function: Deploy-DockerAws
 Hints:
   - Navigate to the AWSTemplates directory
   - Current directory: $currentDir
   - Run: cd Service/AWSTemplates
+  - Or use: Deploy-DockerAws -Path ./path/to/dockerfile/folder
 "@
-            throw $errorMessage
-        }
+                throw $errorMessage
+            }
 
-        # Dockerfile is relative to Service directory (parent of AWSTemplates)
-        $dockerfilePath = "../Containers/$ContainerName/Dockerfile"
-        if (-not (Test-Path $dockerfilePath)) {
-            $errorMessage = @"
+            # Dockerfile is relative to Service directory (parent of AWSTemplates)
+            $dockerfilePath = "../Containers/$ContainerName/Dockerfile"
+            if (-not (Test-Path $dockerfilePath)) {
+                $errorMessage = @"
 Error: Dockerfile not found at expected location
 Function: Deploy-DockerAws
 Hints:
@@ -98,7 +172,13 @@ Hints:
   - Current directory: $(Get-Location)
   - Verify the container name is correct
 "@
-            throw $errorMessage
+                throw $errorMessage
+            }
+            
+            # Build context for traditional mode is parent directory (Service)
+            $buildContext = ".."
+        } else {
+            Write-LzAwsVerbose "Using external Dockerfile at: $dockerfilePath"
         }
 
         # Step 3: Get system configuration
@@ -140,6 +220,15 @@ Hints:
         Write-Host "======================================"
         Write-Host "Container Name: $ContainerName"
         Write-Host "Image Tag: $ImageTag"
+        if ($useExternalPath) {
+            Write-Host "Dockerfile Path: $dockerfilePath"
+            Write-Host "Build Context: $buildContext"
+        }
+        if ($useBuildx) {
+            Write-Host "Build Mode: docker buildx (target: linux/amd64)"
+        } else {
+            Write-Host "Build Mode: docker build"
+        }
         Write-Host "ECR Repository: $EcrRepositoryName"
         Write-Host "Full Image URI: $FullImageUri"
         Write-Host "AWS Profile: $ProfileName"
@@ -150,7 +239,7 @@ Hints:
         Write-LzAwsVerbose "Checking if ECR repository exists"
         Write-Host "Checking ECR repository..."
 
-        $awsCommand = if ($IsWindows -or $env:OS -match "Windows") { "aws" } else { "aws.exe" }
+        $awsCommand = "aws"
 
         $repoCheck = & $awsCommand ecr describe-repositories `
             --profile $ProfileName `
@@ -247,32 +336,33 @@ Error Details: $($_.Exception.Message)
             throw $errorMessage
         }
 
-        # Step 7: Synchronize Docker packages
-        Write-LzAwsVerbose "Synchronizing Docker packages using Sync-DockerPackages function"
-        Write-Host "Synchronizing NuGet packages for Docker build..."
-        try {
-            $serviceDir = Split-Path $PWD -Parent
-
-            # Change to Service directory to run the function
-            Push-Location $serviceDir
+        # Step 7: Synchronize Docker packages (skip for external Dockerfiles)
+        if (-not $useExternalPath) {
+            Write-LzAwsVerbose "Synchronizing Docker packages using Sync-DockerPackages function"
+            Write-Host "Synchronizing NuGet packages for Docker build..."
             try {
-                # Project path relative to Service directory
-                $projectPath = "Containers/$ContainerName/$ContainerName.csproj"
+                $serviceDir = Split-Path $PWD -Parent
 
-                # Call the module function directly
-                $syncResult = Sync-DockerPackages -ProjectPath $projectPath
+                # Change to Service directory to run the function
+                Push-Location $serviceDir
+                try {
+                    # Project path relative to Service directory
+                    $projectPath = "Containers/$ContainerName/$ContainerName.csproj"
 
-                if (-not $syncResult) {
-                    throw "Sync-DockerPackages function returned false"
+                    # Call the module function directly
+                    $syncResult = Sync-DockerPackages -ProjectPath $projectPath
+
+                    if (-not $syncResult) {
+                        throw "Sync-DockerPackages function returned false"
+                    }
+                    Write-LzAwsVerbose "Successfully synchronized Docker packages"
                 }
-                Write-LzAwsVerbose "Successfully synchronized Docker packages"
+                finally {
+                    Pop-Location
+                }
             }
-            finally {
-                Pop-Location
-            }
-        }
-        catch {
-            $errorMessage = @"
+            catch {
+                $errorMessage = @"
 Error: Failed to synchronize Docker packages
 Function: Deploy-DockerAws
 Hints:
@@ -282,16 +372,35 @@ Hints:
   - Try running: Sync-DockerPackages -ProjectPath "Containers/$ContainerName/$ContainerName.csproj"
 Error Details: $($_.Exception.Message)
 "@
-            throw $errorMessage
+                throw $errorMessage
+            }
+        } else {
+            Write-LzAwsVerbose "Skipping Sync-DockerPackages for external Dockerfile"
         }
 
         # Step 8: Build the Docker image
-        Write-LzAwsVerbose "Building Docker image from Service directory"
+        Write-LzAwsVerbose "Building Docker image"
         Write-Host "Building Docker image '$ImageName'..."
+        if ($useBuildx) {
+            Write-Host "Using docker buildx for cross-platform build (target: linux/amd64)"
+        }
         try {
-            # Docker build context must be Service directory (parent of AWSTemplates)
-            # Run from parent directory with -f flag to specify Dockerfile location
-            $buildResult = docker build -f $dockerfilePath --build-arg ContainerName=$ContainerName -t $ImageName .. 2>&1
+            # Build command varies based on buildx requirement and path mode
+            if ($useExternalPath) {
+                # External path mode - Dockerfile path is absolute, context is the folder
+                if ($useBuildx) {
+                    $buildResult = docker buildx build --platform linux/amd64 -f $dockerfilePath -t $ImageName --load $buildContext 2>&1
+                } else {
+                    $buildResult = docker build -f $dockerfilePath -t $ImageName $buildContext 2>&1
+                }
+            } else {
+                # Traditional mode - relative paths from AWSTemplates
+                if ($useBuildx) {
+                    $buildResult = docker buildx build --platform linux/amd64 -f $dockerfilePath --build-arg ContainerName=$ContainerName -t $ImageName --load $buildContext 2>&1
+                } else {
+                    $buildResult = docker build -f $dockerfilePath --build-arg ContainerName=$ContainerName -t $ImageName $buildContext 2>&1
+                }
+            }
             if ($LASTEXITCODE -ne 0) {
                 throw "Docker build failed: $buildResult"
             }
@@ -306,9 +415,12 @@ Hints:
   - Ensure all required files are present in the build context
   - Review the build output for specific errors
   - Verify there is enough disk space for the build
-  - Try running: Sync-DockerPackages -ProjectPath "Containers/$ContainerName/$ContainerName.csproj"
-Error Details: $($_.Exception.Message)
+  - If using buildx, ensure docker buildx is available: docker buildx version
 "@
+            if (-not $useExternalPath) {
+                $errorMessage += "`n  - Try running: Sync-DockerPackages -ProjectPath `"Containers/$ContainerName/$ContainerName.csproj`""
+            }
+            $errorMessage += "`nError Details: $($_.Exception.Message)"
             throw $errorMessage
         }
 
