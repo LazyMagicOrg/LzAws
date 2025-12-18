@@ -14,9 +14,9 @@
     If not specified when using -Path, defaults to the folder name containing the Dockerfile.
 .PARAMETER ImageTag
     The tag to apply to the Docker image. Defaults to "latest"
-.PARAMETER Path
-    Optional path to a folder containing a Dockerfile. Can be relative or absolute.
-    When specified, the build context is the folder containing the Dockerfile.
+.PARAMETER External
+    Optional path to a folder containing a Dockerfile outside the LazyMagic solution structure.
+    Can be relative or absolute. When specified, the build context is the folder containing the Dockerfile.
     When specified, skips Sync-DockerPackages (assumes self-contained Dockerfile).
 .EXAMPLE
     Deploy-DockerAws -ContainerName "ChatAppRunner"
@@ -25,11 +25,11 @@
     Deploy-DockerAws -ContainerName "ChatAppRunner" -ImageTag "v1.0.0"
     Builds and deploys the ChatAppRunner container with a custom version tag
 .EXAMPLE
-    Deploy-DockerAws -Path ./Smartstore
-    Builds from a local Smartstore folder, using "smartstore" as the container name
+    Deploy-DockerAws -External ./Smartstore
+    Builds from an external Smartstore folder, using "smartstore" as the container name
 .EXAMPLE
-    Deploy-DockerAws -Path ./Smartstore -ContainerName "MyStore"
-    Builds from a local Smartstore folder with a custom container name
+    Deploy-DockerAws -External ./Smartstore -ContainerName "MyStore"
+    Builds from an external Smartstore folder with a custom container name
 .NOTES
     - Requires Docker Desktop to be running
     - Requires valid AWS credentials and appropriate permissions
@@ -52,26 +52,26 @@ function Deploy-DockerAws {
 
         [Parameter(Mandatory=$false)]
         [ValidateNotNullOrEmpty()]
-        [string]$Path
+        [string]$External
     )
 
     # Determine if we're using an external Dockerfile path
-    $useExternalPath = -not [string]::IsNullOrEmpty($Path)
+    $useExternalPath = -not [string]::IsNullOrEmpty($External)
     
     # If using external path, resolve it and derive ContainerName if not specified
     if ($useExternalPath) {
         # Resolve to absolute path
-        $resolvedPath = Resolve-Path -Path $Path -ErrorAction SilentlyContinue
+        $resolvedPath = Resolve-Path -Path $External -ErrorAction SilentlyContinue
         if (-not $resolvedPath) {
             # Path doesn't exist yet, try to resolve parent and construct
-            $resolvedPath = Join-Path (Get-Location) $Path
+            $resolvedPath = Join-Path (Get-Location) $External
         } else {
             $resolvedPath = $resolvedPath.Path
         }
         
         # Verify the path exists and contains a Dockerfile
         if (-not (Test-Path $resolvedPath)) {
-            throw "Path not found: $Path (resolved to: $resolvedPath)"
+            throw "Path not found: $External (resolved to: $resolvedPath)"
         }
         
         $dockerfilePath = Join-Path $resolvedPath "Dockerfile"
@@ -156,7 +156,7 @@ Hints:
   - Navigate to the AWSTemplates directory
   - Current directory: $currentDir
   - Run: cd Service/AWSTemplates
-  - Or use: Deploy-DockerAws -Path ./path/to/dockerfile/folder
+  - Or use: Deploy-DockerAws -External ./path/to/dockerfile/folder
 "@
                 throw $errorMessage
             }
