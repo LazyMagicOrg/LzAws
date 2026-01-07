@@ -6,13 +6,13 @@
     This script uses the AWS SSM Session Manager to proxy SSH connections,
     eliminating the need for direct SSH access or bastion hosts.
     
-    The EC2 instance ID and ports to forward are read from systemconfig.yaml.
-    Assumes AWS SSO login has already been completed.
+    The EC2 instance ID and services to forward are read from the Integrations
+    section in systemconfig.yaml. Assumes AWS SSO login has already been completed.
 .PARAMETER None
     This cmdlet does not accept parameters directly, but reads from system configuration
 .EXAMPLE
     Open-TunnelAws
-    Opens SSH tunnels based on Tunnel configuration in systemconfig.yaml
+    Opens SSH tunnels based on Integrations configuration in systemconfig.yaml
 .NOTES
     - Requires AWS CLI and Session Manager plugin installed
     - Requires valid AWS SSO session (run: aws sso login --profile <profile>)
@@ -33,50 +33,58 @@ function Open-TunnelAws {
         $Region = $script:Region
         $Config = $script:Config
 
-        # Validate Tunnel configuration exists
-        if (-not $Config.Tunnel) {
+        # Validate Integrations configuration exists
+        if (-not $Config.Integrations) {
             $errorMessage = @"
-Error: Tunnel configuration not found in systemconfig.yaml
+Error: Integrations configuration not found in systemconfig.yaml
 Function: Open-TunnelAws
 Hints:
-  - Add a 'Tunnel' section to your systemconfig.yaml file
+  - Add an 'Integrations' section to your systemconfig.yaml file
   - Include 'InstanceId' with your EC2 instance ID
-  - Include 'Ports' array with port configurations
+  - Include 'Services' dictionary with service configurations
   - Example:
-    Tunnel:
+    Integrations:
       InstanceId: "i-0123456789abcdef0"
-      Ports:
-      - Port: 5432
-        Description: "PostgreSQL"
+      Services:
+        database:
+          Port: 5432
+          Host: "localhost"
+          DockerName: "postgres"
+          Scheme: "tcp"
+          Description: "PostgreSQL"
 "@
             throw $errorMessage
         }
 
-        $InstanceId = $Config.Tunnel.InstanceId
+        $InstanceId = $Config.Integrations.InstanceId
         if ([string]::IsNullOrWhiteSpace($InstanceId)) {
             $errorMessage = @"
-Error: InstanceId not specified in Tunnel configuration
+Error: InstanceId not specified in Integrations configuration
 Function: Open-TunnelAws
 Hints:
-  - Add 'InstanceId' to the Tunnel section in systemconfig.yaml
+  - Add 'InstanceId' to the Integrations section in systemconfig.yaml
   - Example: InstanceId: "i-0123456789abcdef0"
   - You can find your instance ID in the AWS EC2 console
 "@
             throw $errorMessage
         }
 
-        $Ports = $Config.Tunnel.Ports
-        if (-not $Ports -or $Ports.Count -eq 0) {
+        $Services = $Config.Integrations.Services
+        if (-not $Services -or $Services.Keys.Count -eq 0) {
             $errorMessage = @"
-Error: No ports specified in Tunnel configuration
+Error: No services specified in Integrations configuration
 Function: Open-TunnelAws
 Hints:
-  - Add 'Ports' array to the Tunnel section in systemconfig.yaml
-  - Each port entry should have 'Port' and optionally 'Description'
+  - Add 'Services' dictionary to the Integrations section in systemconfig.yaml
+  - Each service entry should be keyed by service name with 'Port' and optionally 'Description'
   - Example:
-    Ports:
-    - Port: 5432
-      Description: "PostgreSQL"
+    Services:
+      database:
+        Port: 5432
+        Host: "localhost"
+        DockerName: "postgres"
+        Scheme: "tcp"
+        Description: "PostgreSQL"
 "@
             throw $errorMessage
         }
@@ -84,13 +92,14 @@ Hints:
         # Build the SSH command with port forwarding arguments
         $PortForwardArgs = @()
         Write-Host "Configuring port forwards:"
-        foreach ($portConfig in $Ports) {
-            $port = $portConfig.Port
-            $description = $portConfig.Description
+        foreach ($serviceName in $Services.Keys) {
+            $serviceConfig = $Services[$serviceName]
+            $port = $serviceConfig.Port
+            $description = $serviceConfig.Description
             if ($description) {
-                Write-Host "  - Port $port : $description"
+                Write-Host "  - $serviceName (Port $port) : $description"
             } else {
-                Write-Host "  - Port $port"
+                Write-Host "  - $serviceName (Port $port)"
             }
             $PortForwardArgs += "-L"
             $PortForwardArgs += "${port}:localhost:${port}"
