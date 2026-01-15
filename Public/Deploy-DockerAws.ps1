@@ -18,6 +18,9 @@
     Optional path to a folder containing a Dockerfile outside the LazyMagic solution structure.
     Can be relative or absolute. When specified, the build context is the folder containing the Dockerfile.
     When specified, skips Sync-DockerPackages (assumes self-contained Dockerfile).
+.PARAMETER DockerfileName
+    Optional name of the Dockerfile to use. Defaults to "Dockerfile".
+    Can include a relative path from the External folder (e.g., "custom/Dockerfile").
 .EXAMPLE
     Deploy-DockerAws -ContainerName "ChatAppRunner"
     Builds and deploys the ChatAppRunner container from Service/Containers/ChatAppRunner
@@ -30,6 +33,9 @@
 .EXAMPLE
     Deploy-DockerAws -External ./Smartstore -ContainerName "MyStore"
     Builds from an external Smartstore folder with a custom container name
+.EXAMPLE
+    Deploy-DockerAws -External ../Smartstore -DockerfileName "./custom/Dockerfile"
+    Builds using a custom Dockerfile path within the external folder
 .NOTES
     - Requires Docker Desktop to be running
     - Requires valid AWS credentials and appropriate permissions
@@ -52,7 +58,11 @@ function Deploy-DockerAws {
 
         [Parameter(Mandatory=$false)]
         [ValidateNotNullOrEmpty()]
-        [string]$External
+        [string]$External,
+
+        [Parameter(Mandatory=$false)]
+        [ValidateNotNullOrEmpty()]
+        [string]$DockerfileName = "Dockerfile"
     )
 
     # Determine if we're using an external Dockerfile path
@@ -74,7 +84,7 @@ function Deploy-DockerAws {
             throw "Path not found: $External (resolved to: $resolvedPath)"
         }
         
-        $dockerfilePath = Join-Path $resolvedPath "Dockerfile"
+        $dockerfilePath = Join-Path $resolvedPath $DockerfileName
         if (-not (Test-Path $dockerfilePath)) {
             throw "Dockerfile not found at: $dockerfilePath"
         }
