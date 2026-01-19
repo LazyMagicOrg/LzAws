@@ -5,19 +5,32 @@
     Establishes SSH port forwarding tunnels to an EC2 instance using AWS SSM.
     This script uses the AWS SSM Session Manager to proxy SSH connections,
     eliminating the need for direct SSH access or bastion hosts.
-    
-    The EC2 instance ID and services to forward are read from the Integrations
-    section in systemconfig.yaml. Assumes AWS SSO login has already been completed.
+
+    Configuration is read from TunnelConfig.yaml which must contain:
+    - Profile: AWS profile name
+    - Region: AWS region
+    - InstanceId: EC2 instance ID
+    - Services: Dictionary of services to forward
+
+    Assumes AWS SSO login has already been completed.
 .PARAMETER None
-    This cmdlet does not accept parameters directly, but reads from system configuration
+    This cmdlet does not accept parameters directly, but reads from TunnelConfig.yaml
 .EXAMPLE
     Open-TunnelAws
-    Opens SSH tunnels based on Integrations configuration in systemconfig.yaml
+    Opens SSH tunnels based on configuration in TunnelConfig.yaml
 .NOTES
     - Requires AWS CLI and Session Manager plugin installed
     - Requires valid AWS SSO session (run: aws sso login --profile <profile>)
     - Requires SSH client installed
     - EC2 instance must have SSM agent running and proper IAM permissions
+    - TunnelConfig.yaml example:
+      Profile: "my-aws-profile"
+      Region: "us-east-1"
+      InstanceId: "i-0123456789abcdef0"
+      Services:
+        database:
+          Port: 5432
+          Description: "PostgreSQL"
 .OUTPUTS
     Returns $true on success, $false on error
 #>
@@ -28,62 +41,96 @@ function Open-TunnelAws {
     Write-LzAwsVerbose "Open-TunnelAws"
 
     try {
-        $null = Get-SystemConfig
-        $ProfileName = $script:ProfileName
-        $Region = $script:Region
-        $Config = $script:Config
+        # Load TunnelConfig.yaml
+        Write-LzAwsVerbose "Loading TunnelConfig.yaml"
+        $FilePath = Find-FileUp "TunnelConfig.yaml" -ErrorAction SilentlyContinue
 
-        # Validate Integrations configuration exists
-        if (-not $Config.Integrations) {
+        if ($null -eq $FilePath -or -not (Test-Path $FilePath)) {
             $errorMessage = @"
-Error: Integrations configuration not found in systemconfig.yaml
+Error: Can't find TunnelConfig.yaml
 Function: Open-TunnelAws
 Hints:
-  - Add an 'Integrations' section to your systemconfig.yaml file
-  - Include 'InstanceId' with your EC2 instance ID
-  - Include 'Services' dictionary with service configurations
+  - Create a TunnelConfig.yaml file in the current directory or a parent directory
+  - The file should contain Profile, Region, InstanceId, and Services
   - Example:
-    Integrations:
-      InstanceId: "i-0123456789abcdef0"
-      Services:
-        database:
-          Port: 5432
-          Host: "localhost"
-          DockerName: "postgres"
-          Scheme: "tcp"
-          Description: "PostgreSQL"
+    Profile: "my-aws-profile"
+    Region: "us-east-1"
+    InstanceId: "i-0123456789abcdef0"
+    Services:
+      database:
+        Port: 5432
+        Description: "PostgreSQL"
 "@
             throw $errorMessage
         }
 
-        $InstanceId = $Config.Integrations.InstanceId
-        if ([string]::IsNullOrWhiteSpace($InstanceId)) {
+        try {
+            $Config = Get-Content -Path $FilePath | ConvertFrom-Yaml
+        } catch {
             $errorMessage = @"
-Error: InstanceId not specified in Integrations configuration
+Error: Failed to parse TunnelConfig.yaml
 Function: Open-TunnelAws
 Hints:
-  - Add 'InstanceId' to the Integrations section in systemconfig.yaml
+  - Check if the TunnelConfig.yaml file is valid YAML
+  - Ensure the file is not corrupted
+  - Verify the file has proper YAML syntax
+"@
+            throw $errorMessage
+        }
+
+        # Validate Profile
+        $ProfileName = $Config.Profile
+        if ([string]::IsNullOrWhiteSpace($ProfileName)) {
+            $errorMessage = @"
+Error: Profile not specified in TunnelConfig.yaml
+Function: Open-TunnelAws
+Hints:
+  - Add a 'Profile' property to your TunnelConfig.yaml file
+  - Example: Profile: "my-aws-profile"
+"@
+            throw $errorMessage
+        }
+
+        # Validate Region
+        $Region = $Config.Region
+        if ([string]::IsNullOrWhiteSpace($Region)) {
+            $errorMessage = @"
+Error: Region not specified in TunnelConfig.yaml
+Function: Open-TunnelAws
+Hints:
+  - Add a 'Region' property to your TunnelConfig.yaml file
+  - Example: Region: "us-east-1"
+"@
+            throw $errorMessage
+        }
+
+        # Validate InstanceId
+        $InstanceId = $Config.InstanceId
+        if ([string]::IsNullOrWhiteSpace($InstanceId)) {
+            $errorMessage = @"
+Error: InstanceId not specified in TunnelConfig.yaml
+Function: Open-TunnelAws
+Hints:
+  - Add 'InstanceId' to your TunnelConfig.yaml file
   - Example: InstanceId: "i-0123456789abcdef0"
   - You can find your instance ID in the AWS EC2 console
 "@
             throw $errorMessage
         }
 
-        $Services = $Config.Integrations.Services
+        # Validate Services
+        $Services = $Config.Services
         if (-not $Services -or $Services.Keys.Count -eq 0) {
             $errorMessage = @"
-Error: No services specified in Integrations configuration
+Error: No services specified in TunnelConfig.yaml
 Function: Open-TunnelAws
 Hints:
-  - Add 'Services' dictionary to the Integrations section in systemconfig.yaml
+  - Add 'Services' dictionary to your TunnelConfig.yaml file
   - Each service entry should be keyed by service name with 'Port' and optionally 'Description'
   - Example:
     Services:
       database:
         Port: 5432
-        Host: "localhost"
-        DockerName: "postgres"
-        Scheme: "tcp"
         Description: "PostgreSQL"
 "@
             throw $errorMessage
