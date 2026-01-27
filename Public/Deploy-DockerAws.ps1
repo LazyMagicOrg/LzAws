@@ -360,7 +360,7 @@ Error Details: $($_.Exception.Message)
                     $projectPath = "Containers/$ContainerName/$ContainerName.csproj"
 
                     # Call the module function directly
-                    $syncResult = Sync-DockerPackages -ProjectPath $projectPath
+                    $syncResult = Sync-DockerPackages -ProjectPath $projectPath -Clean
 
                     if (-not $syncResult) {
                         throw "Sync-DockerPackages function returned false"
