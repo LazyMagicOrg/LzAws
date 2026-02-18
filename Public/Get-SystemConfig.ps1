@@ -1,28 +1,44 @@
 function Get-SystemConfig {
-	Write-LzAwsVerbose "Loading systemconfig.yaml"
-	# Load the systemconfig.yaml file
-	$FilePath = Find-FileUp "systemconfig.yaml" -ErrorAction SilentlyContinue
+	Write-LzAwsVerbose "Loading system configuration"
 
-	if($null -eq $FilePath -or -not (Test-Path $FilePath)) {
+	# Try systemconfig.yaml first
+	$FilePath = Find-FileUp "systemconfig.yaml" -ErrorAction SilentlyContinue
+	$ConfigFileName = "systemconfig.yaml"
+
+	# If systemconfig.yaml not found, resolve environment and try systemconfig.{env}.yaml
+	if ($null -eq $FilePath -or -not (Test-Path $FilePath)) {
+		Write-LzAwsVerbose "systemconfig.yaml not found, resolving environment"
+		$EnvName = Get-Environment
+		if ($null -ne $EnvName) {
+			$ConfigFileName = "systemconfig.$EnvName.yaml"
+			Write-LzAwsVerbose "Environment resolved to '$EnvName', looking for $ConfigFileName"
+			$FilePath = Find-FileUp $ConfigFileName -ErrorAction SilentlyContinue
+		}
+	}
+
+	if ($null -eq $FilePath -or -not (Test-Path $FilePath)) {
 		$errorMessage = @"
-Error: Can't find systemconfig.yaml.
+Error: Can't find system configuration file.
 Function: Get-SystemConfig
 Hints:
   - Are you running this from the root of a solution?
-  - Do you have a systemconfig.yaml file in a folder above the solution folder?
-  - Check if the file name is exactly 'systemconfig.yaml' (case sensitive)
+  - Do you have a systemconfig.yaml or systemconfig.{env}.yaml file in a folder above the solution folder?
+  - Environment can be set via env.yaml (env: dev) or by having a _Dev*, _Test*, or _Prod* folder in the path
+  - Check if the file name is exactly correct (case sensitive)
 "@
 		throw $errorMessage
 	}
+
+	Write-LzAwsVerbose "Using configuration file: $FilePath"
 
 	try {
 		$Config = Get-Content -Path $FilePath | ConvertFrom-Yaml
 	} catch {
 		$errorMessage = @"
-Error: Failed to convert systemconfig.yaml to a dictionary
+Error: Failed to convert $ConfigFileName to a dictionary
 Function: Get-SystemConfig
 Hints:
-  - Check if the systemconfig.yaml file is valid YAML
+  - Check if the $ConfigFileName file is valid YAML
   - Ensure the file is not corrupted or missing any required fields
   - Verify the file is in the correct format
 "@
@@ -53,10 +69,10 @@ Hints:
 	$Region = $Config.Region
 	if ([string]::IsNullOrWhiteSpace($Region)) {
 		$errorMessage = @"
-Error: Region not specified in systemconfig.yaml
+Error: Region not specified in $ConfigFileName
 Function: Get-SystemConfig
 Hints:
-  - Add a 'Region' property to your systemconfig.yaml file
+  - Add a 'Region' property to your $ConfigFileName file
   - Example: Region: us-east-1
 "@
 		throw $errorMessage

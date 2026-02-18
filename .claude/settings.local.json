@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Read(//mnt/c/Users/TimothyMay/repos/_Dev/MagicPets/Service/AWSTemplates/Templates/**)",
-      "Bash(pwsh:*)"
+      "Bash(pwsh:*)",
+      "Bash(Get-ChildItem -Path \".\" -Directory)",
+      "Bash(Select-Object Name)"
     ],
     "deny": [],
     "ask": []

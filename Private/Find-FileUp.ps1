@@ -8,8 +8,14 @@ function Find-FileUp {
         [string]$StartPath
     )
 
-    # Convert the start path to absolute path - this can only fail if StartPath is explicitly provided and invalid
-    $CurrentPath = (Get-Location).Path
+    if ($StartPath) {
+        $CurrentPath = (Resolve-Path $StartPath -ErrorAction SilentlyContinue).Path
+        if (-not $CurrentPath) {
+            return $null
+        }
+    } else {
+        $CurrentPath = (Get-Location).Path
+    }
 
     while ($CurrentPath -ne '') {
         # Check if the file exists in the current directory

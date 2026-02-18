@@ -1,6 +1,7 @@
 # This script creates AWS resources for the system.
-# This these system resources:
-# - S3 buckets for system assets
+# These system resources:
+# - S3 bucket for system assets
+# - S3 bucket for SAM/CloudFormation artifacts
 # - DynamoDB table for system
 function Deploy-SystemResourcesAws {
     [CmdletBinding()]
@@ -37,11 +38,15 @@ Hints:
 "@
         throw $errorMessage
     }
-    # Create the s3 buckets 
-    Write-LzAwsVerbose "Creating S3 bucket"
-    $BucketName = $Config.SystemKey + "---assets-" + $Config.SystemSuffix
-    New-LzAwsS3Bucket -BucketName $BucketName -Region $Region -Account $Account -BucketType "ASSETS" -ProfileName $ProfileName
-    
+    # Create the S3 buckets
+    Write-LzAwsVerbose "Creating S3 assets bucket"
+    $AssetsBucket = $Config.SystemKey + "---assets-" + $Config.SystemSuffix
+    New-LzAwsS3Bucket -BucketName $AssetsBucket -Region $Region -Account $Account -BucketType "ASSETS" -ProfileName $ProfileName
+
+    Write-LzAwsVerbose "Creating S3 artifacts bucket"
+    $ArtifactsBucket = $Config.SystemKey + "---artifacts-" + $Config.SystemSuffix
+    New-LzAwsS3Bucket -BucketName $ArtifactsBucket -Region $Region -Account $Account -BucketType "ASSETS" -ProfileName $ProfileName
+
     # Create the DynamoDB table
     $TableName = $Config.SystemKey 
     if($ReportOnly) {

@@ -66,12 +66,20 @@ Deploy-TenantAws -TenantKey "tenant1"
 - **LzAws.psd1**: Module manifest defining exports and dependencies
 
 ### Configuration
-The module uses YAML configuration files (`systemconfig.yaml`) that must include:
+The module uses YAML configuration files discovered by searching up the directory tree using `Find-FileUp`.
+
+**Resolution order:**
+1. `systemconfig.yaml` — if found, it is used and no environment lookup occurs
+2. If `systemconfig.yaml` is not found, the environment is resolved and `systemconfig.{env}.yaml` is used (e.g., `systemconfig.dev.yaml`)
+
+**Environment resolution** (via `Get-Environment`, only when `systemconfig.yaml` is absent):
+1. Search for `env.yaml` in the folder hierarchy. If found, use its `env` property (e.g., `env: dev`)
+2. If no `env.yaml`, scan the current directory path for folder names matching `_Dev*`, `_Test*`, or `_Prod*` → maps to `dev`, `test`, `prod`
+
+Configuration files must include:
 - System configuration with AWS settings
 - Tenant definitions with domains and certificates
 - Service configurations
-
-Configuration files are discovered by searching up the directory tree using `Find-FileUp`.
 
 ### AWS Integration
 - Automatically manages AWS PowerShell module dependencies
@@ -173,7 +181,8 @@ Get-TestError     # Retrieves test error
 
 ### 4. Configuration Management
 - Configuration flows from system → tenant → subtenant levels
-- Use `Find-FileUp` to locate `systemconfig.yaml` from any directory
+- `Get-SystemConfig` tries `systemconfig.yaml` first; if not found, resolves environment via `Get-Environment` and loads `systemconfig.{env}.yaml`
+- No merge occurs — it's one file or the other
 - Configuration is cached in `$script:Config` after first load
 - Stack outputs are retrieved via `Get-StackOutputs` and merged into parameters
 - Always check `if ($null -eq $Config)` before using configuration

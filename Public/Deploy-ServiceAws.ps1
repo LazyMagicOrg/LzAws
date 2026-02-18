@@ -3,8 +3,13 @@
     Deploys service infrastructure and resources to AWS
 .DESCRIPTION
     Deploys or updates service infrastructure in AWS using CloudFormation/SAM templates.
-    This includes configuring authentication resources,
-    and setting up other required AWS services.
+    Supports two modes:
+    1. ECS mode: If Templates/sam.service.yaml exists (and Generated/sam.Service.g.yaml
+       does not), deploys the ECS service template directly using system stack outputs.
+       Skips packaging, S3 upload, and auth stack iteration.
+    2. Generated mode: Falls back to the standard LazyMagic workflow using
+       Generated/sam.Service.g.yaml with sam package, S3 upload, and
+       deploymentconfig.g.yaml auth stack iteration.
 .PARAMETER None
     This cmdlet does not accept any parameters. It uses system configuration files
     to determine deployment settings.
@@ -21,10 +26,10 @@
 #>
 function Deploy-ServiceAws {
     [CmdletBinding()]
-    param()	
-    Write-LzAwsVerbose "Starting service infrastructure deployment"  
+    param()
+    Write-LzAwsVerbose "Starting service infrastructure deployment"
     try {
-        $SystemConfig = Get-SystemConfig 
+        $SystemConfig = Get-SystemConfig
         $ProfileName = $script:ProfileName
         $Region = $script:Region
         $Config = $SystemConfig.Config
@@ -46,6 +51,258 @@ Hints:
 
         $StackName = $Config.SystemKey + "---service"
         $ArtifactsBucket = $Config.SystemKey + "---artifacts-" + $Config.SystemSuffix
+
+        # =================================================================
+        # ECS TEMPLATES PATH: Check for Templates/sam.service.yaml FIRST
+        # When Generated/sam.Service.g.yaml doesn't exist but
+        # Templates/sam.service.yaml does, use the ECS deployment path.
+        # This skips packaging, S3 upload, and auth stack iteration.
+        # =================================================================
+        $UseEcsTemplate = (-not (Test-Path -Path "Generated/sam.Service.g.yaml" -PathType Leaf)) -and
+                          (Test-Path -Path "Templates/sam.service.yaml" -PathType Leaf)
+
+        if ($UseEcsTemplate) {
+            Write-LzAwsVerbose "Using Templates/sam.service.yaml (ECS deployment path)"
+
+            # Get system stack outputs
+            $SystemStackName = $SystemKey + "---system"
+            Write-LzAwsVerbose "Getting system stack outputs from '$SystemStackName'"
+            $SystemStackOutputDict = Get-StackOutputs $SystemStackName
+
+            # Build parameters from system stack outputs + config
+            $ParametersDict = @{
+                "SystemKeyParameter" = $SystemKey
+                "SystemSuffixParameter" = $SystemSuffix
+                "EnvironmentParameter" = $Environment
+                "DomainNameParameter" = $Config.DefaultTenant
+            }
+
+            # Add all system stack outputs as parameters
+            foreach ($OutputKey in $SystemStackOutputDict.Keys) {
+                $ParameterName = $OutputKey + "Parameter"
+                if (-not $ParametersDict.ContainsKey($ParameterName)) {
+                    $ParametersDict[$ParameterName] = $SystemStackOutputDict[$OutputKey]
+                    Write-LzAwsVerbose "Added system stack output: $ParameterName"
+                }
+            }
+
+            # Add ECS-specific config values
+            $EcsConfig = $Config.ECS
+            if ($null -ne $EcsConfig) {
+                # SmartStoreImage is optional - if set, overrides ECR auto-discovery
+                if ($EcsConfig.SmartStoreImage) {
+                    $ParametersDict["SmartStoreImageParameter"] = $EcsConfig.SmartStoreImage
+                    Write-LzAwsVerbose "SmartStore image overridden from config: $($EcsConfig.SmartStoreImage)"
+                }
+                if ($EcsConfig.SmartStoreCpu) {
+                    $ParametersDict["SmartStoreCpuParameter"] = [string]$EcsConfig.SmartStoreCpu
+                }
+                if ($EcsConfig.SmartStoreMemory) {
+                    $ParametersDict["SmartStoreMemoryParameter"] = [string]$EcsConfig.SmartStoreMemory
+                }
+                if ($EcsConfig.AppHostCpu) {
+                    $ParametersDict["AppHostCpuParameter"] = [string]$EcsConfig.AppHostCpu
+                }
+                if ($EcsConfig.AppHostMemory) {
+                    $ParametersDict["AppHostMemoryParameter"] = [string]$EcsConfig.AppHostMemory
+                }
+                if ($EcsConfig.ServiceDesiredCount -ne $null) {
+                    $ParametersDict["ServiceDesiredCountParameter"] = [string]$EcsConfig.ServiceDesiredCount
+                }
+                if ($EcsConfig.LogRetentionDays) {
+                    $ParametersDict["LogRetentionDaysParameter"] = [string]$EcsConfig.LogRetentionDays
+                }
+                if ($EcsConfig.TailscaleAuthKeySecret) {
+                    $ParametersDict["TailscaleAuthKeySecretParameter"] = $EcsConfig.TailscaleAuthKeySecret
+                }
+                if ($EcsConfig.TailscaleInstanceType) {
+                    $ParametersDict["TailscaleInstanceTypeParameter"] = $EcsConfig.TailscaleInstanceType
+                }
+                if ($EcsConfig.TailscaleDesiredCapacity -ne $null) {
+                    $ParametersDict["TailscaleDesiredCapacityParameter"] = [string]$EcsConfig.TailscaleDesiredCapacity
+                }
+                if ($EcsConfig.EnableEfsMountInstance -ne $null) {
+                    $ParametersDict["EnableEfsMountInstanceParameter"] = ([string]$EcsConfig.EnableEfsMountInstance).ToLower()
+                }
+            }
+
+            # Add SecretPrefix from config
+            $SecretsConfig = $Config.SecretsManager
+            if ($null -ne $SecretsConfig -and $SecretsConfig.SecretPrefix) {
+                $ParametersDict["SecretPrefixParameter"] = $SecretsConfig.SecretPrefix
+            }
+
+            # Discover ECR images
+            # Repo naming convention: {SystemKey}-{SystemSuffix}-{Environment}-{service}
+            $EcrRepoPrefix = "$SystemKey-$SystemSuffix-$Environment"
+            $AccountId = aws sts get-caller-identity --query Account --output text --profile $ProfileName --region $Region
+
+            # Discover SmartStore ECR image (unless overridden in config)
+            if (-not $ParametersDict.ContainsKey("SmartStoreImageParameter")) {
+                $SmartStoreRepo = "$EcrRepoPrefix-smartstore"
+                Write-LzAwsVerbose "Checking ECR for SmartStore image: $SmartStoreRepo"
+                try {
+                    $ecrTag = aws ecr describe-images `
+                        --repository-name $SmartStoreRepo `
+                        --query 'imageDetails | sort_by(@, &imagePushedAt) | [-1].imageTags[0]' `
+                        --output text `
+                        --region $Region `
+                        --profile $ProfileName 2>&1
+
+                    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($ecrTag) -and $ecrTag -ne "None") {
+                        $SmartStoreImage = "$AccountId.dkr.ecr.$Region.amazonaws.com/${SmartStoreRepo}:${ecrTag}"
+                        $ParametersDict["SmartStoreImageParameter"] = $SmartStoreImage
+                        Write-LzAwsVerbose "Using SmartStore image: $SmartStoreImage"
+                    } else {
+                        throw "SmartStore image not found in ECR: $SmartStoreRepo. Ensure the image is pushed to ECR."
+                    }
+                } catch {
+                    if ($_.Exception.Message -match "not found in ECR") { throw }
+                    throw "Failed to check ECR for SmartStore image '$SmartStoreRepo': $($_.Exception.Message)"
+                }
+            }
+
+            # Discover AppHost ECR image
+            $AppHostRepo = "$EcrRepoPrefix-apphost"
+            Write-LzAwsVerbose "Checking ECR for AppHost image: $AppHostRepo"
+            try {
+                $ecrTag = aws ecr describe-images `
+                    --repository-name $AppHostRepo `
+                    --query 'imageDetails | sort_by(@, &imagePushedAt) | [-1].imageTags[0]' `
+                    --output text `
+                    --region $Region `
+                    --profile $ProfileName 2>&1
+
+                if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($ecrTag) -and $ecrTag -ne "None") {
+                    $AppHostImage = "$AccountId.dkr.ecr.$Region.amazonaws.com/${AppHostRepo}:${ecrTag}"
+                    $ParametersDict["AppHostImageParameter"] = $AppHostImage
+                    Write-LzAwsVerbose "Using AppHost image: $AppHostImage"
+                } else {
+                    throw "AppHost image not found in ECR: $AppHostRepo. Ensure the image is pushed to ECR."
+                }
+            } catch {
+                if ($_.Exception.Message -match "not found in ECR") { throw }
+                throw "Failed to check ECR for AppHost image '$AppHostRepo': $($_.Exception.Message)"
+            }
+
+            # Upload systemconfig to S3 and generate pre-signed URL for config init task.
+            # Uses the resolved Environment to find systemconfig.{env}.yaml first,
+            # falling back to systemconfig.yaml. Uploads as systemconfig.yaml (fixed
+            # name expected by the init container on EFS).
+            try {
+                $SystemConfigFile = Find-FileUp "systemconfig.$Environment.yaml"
+                if ($null -eq $SystemConfigFile) {
+                    $SystemConfigFile = Find-FileUp "systemconfig.yaml"
+                }
+
+                if ($null -ne $SystemConfigFile) {
+                    $configFileName = Split-Path $SystemConfigFile -Leaf
+                    Write-LzAwsVerbose "Found config file: $configFileName"
+                    $S3ConfigKey = "system/systemconfig.yaml"
+                    Write-LzAwsVerbose "Uploading $SystemConfigFile to s3://$ArtifactsBucket/$S3ConfigKey"
+                    aws s3 cp $SystemConfigFile "s3://$ArtifactsBucket/$S3ConfigKey" --region $Region --profile $ProfileName
+                    if ($LASTEXITCODE -eq 0) {
+                        $PreSignedUrl = aws s3 presign "s3://$ArtifactsBucket/$S3ConfigKey" --expires-in 3600 --region $Region --profile $ProfileName
+                        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($PreSignedUrl)) {
+                            $ParametersDict["SystemConfigUrlParameter"] = $PreSignedUrl
+                            Write-LzAwsVerbose "Generated pre-signed URL for systemconfig.yaml"
+                        }
+                    }
+                } else {
+                    Write-LzAwsVerbose "Warning: No systemconfig file found for S3 upload"
+                }
+            } catch {
+                Write-LzAwsVerbose "Warning: Failed to upload systemconfig.yaml: $($_.Exception.Message)"
+            }
+
+            # Filter to only parameters the template expects
+            $TemplateParameters = Get-TemplateParameters -TemplatePath "Templates/sam.service.yaml"
+            $FilteredParametersDict = @{}
+            foreach ($Key in $ParametersDict.Keys) {
+                if ($TemplateParameters -contains $Key) {
+                    $FilteredParametersDict[$Key] = $ParametersDict[$Key]
+                    Write-LzAwsVerbose "Including parameter: $Key"
+                } else {
+                    Write-LzAwsVerbose "Skipping parameter not in template: $Key"
+                }
+            }
+
+            $Parameters = ConvertTo-ParameterOverrides -parametersDict $FilteredParametersDict
+
+            # Deploy directly (no sam package needed for ECS template)
+            Write-Host "Deploying stack $StackName using profile $ProfileName" -ForegroundColor Cyan
+            $result = sam deploy `
+                --template-file Templates/sam.service.yaml `
+                --s3-bucket $ArtifactsBucket `
+                --stack-name $StackName `
+                --parameter-overrides $Parameters `
+                --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM `
+                --region $Region `
+                --profile $ProfileName 2>&1
+
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -ne 0) {
+                $resultString = $result | Out-String
+                if ($resultString -match "No changes to deploy") {
+                    Write-LzAwsVerbose "No changes to deploy. Stack is up to date."
+                } else {
+                    $errorMessage = @"
+Error: SAM deployment failed
+Function: Deploy-ServiceAws
+Hints:
+  - Check AWS CloudFormation console for detailed errors
+  - Verify you have required IAM permissions
+  - Ensure the template syntax is correct
+  - Validate the parameter values
+Error Details: $resultString
+"@
+                    throw $errorMessage
+                }
+            }
+
+            Write-Host "Successfully deployed service stack (ECS)" -ForegroundColor Green
+
+            # Run config init task for ECS deployments
+            if ($null -ne $EcsConfig) {
+                Write-LzAwsVerbose "Running ECS config initialization task"
+                $ServiceStackOutputs = Get-StackOutputs $StackName
+
+                $clusterArn = $SystemStackOutputDict["EcsClusterArn"]
+                $subnet1 = $SystemStackOutputDict["PrivateSubnet1Id"]
+                $subnet2 = $SystemStackOutputDict["PrivateSubnet2Id"]
+                $securityGroup = $SystemStackOutputDict["EcsPrivateSecurityGroupId"]
+                $initTaskArn = $ServiceStackOutputs["InitTaskDefinitionArn"]
+
+                if (-not [string]::IsNullOrEmpty($clusterArn) -and
+                    -not [string]::IsNullOrEmpty($subnet1) -and
+                    -not [string]::IsNullOrEmpty($securityGroup) -and
+                    -not [string]::IsNullOrEmpty($initTaskArn)) {
+
+                    # Extract task family from ARN (last segment before :revision)
+                    $taskFamily = "$SystemKey-init"
+
+                    $initResult = Invoke-EcsInitTask `
+                        -TaskFamily $taskFamily `
+                        -ClusterArn $clusterArn `
+                        -Subnets "$subnet1,$subnet2" `
+                        -SecurityGroup $securityGroup `
+                        -Description "config initialization"
+
+                    if (-not $initResult) {
+                        Write-Host "Warning: Config initialization task failed. You may need to run it manually." -ForegroundColor Yellow
+                    }
+                } else {
+                    Write-LzAwsVerbose "Skipping config init: required stack outputs not found"
+                }
+            }
+
+            return $true
+        }
+
+        # =================================================================
+        # GENERATED TEMPLATE PATH: Original behavior
+        # =================================================================
+        Write-LzAwsVerbose "Using Generated/sam.Service.g.yaml (standard deployment path)"
 
         # Clean up existing artifacts
         try {
@@ -90,7 +347,7 @@ Hints:
     - Verify S3 bucket permissions
     - Ensure AWS credentials are valid
 "@
-            throw $errorMessage            
+            throw $errorMessage
         }
 
         # Upload templates to S3
@@ -132,13 +389,13 @@ Error Details: $($_.Exception.Message)
                 if ($LASTEXITCODE -ne 0) {
                     throw "Failed to create ec2-setup.tar.gz"
                 }
-                
+
                 Write-LzAwsVerbose "Uploading ec2-setup.tar.gz to S3"
                 aws s3 cp $Ec2SetupTarGz s3://$ArtifactsBucket/ec2-setup.tar.gz --region $Region --profile $ProfileName
                 if ($LASTEXITCODE -ne 0) {
                     throw "Failed to upload ec2-setup.tar.gz"
                 }
-                
+
                 # Clean up local tar.gz file
                 Remove-Item $Ec2SetupTarGz -Force
                 Write-Host "Successfully uploaded ec2-setup.tar.gz to S3" -ForegroundColor Green
@@ -164,7 +421,7 @@ Error Details: $($_.Exception.Message)
             "SystemKeyParameter" = $SystemKey
             "EnvironmentParameter" = $Environment
             "ArtifactsBucketParameter" = $ArtifactsBucket
-            "SystemSuffixParameter" = $SystemSuffix					
+            "SystemSuffixParameter" = $SystemSuffix
         }
 
         if(Test-Path -Path "./Generated/deploymentconfig.g.yaml" -PathType Leaf) {
@@ -429,4 +686,3 @@ Error Details: $result
     }
     return $true
 }
-
