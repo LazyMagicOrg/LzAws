@@ -65,7 +65,19 @@ Hints:
         }
         $KeyValueStoreArn = $SystemStackOutputDict["KeyValueStoreArn"]
 
-        Write-LzAwsVerbose "Deploying the stack $StackName" 
+        $RootDomain = $Config.DefaultTenant
+        if ([string]::IsNullOrWhiteSpace($RootDomain)) {
+            $errorMessage = @"
+Error: DefaultTenant is missing or empty in systemconfig
+Function: Deploy-PoliciesAws
+Hints:
+  - Add a 'DefaultTenant' property to your systemconfig file
+  - Example: DefaultTenant: "ezradev.click"
+"@
+            throw $errorMessage
+        }
+
+        Write-LzAwsVerbose "Deploying the stack $StackName"
 
         # Verify template exists
         if (-not (Test-Path -Path "Templates/sam.policies.yaml" -PathType Leaf)) {
@@ -84,7 +96,7 @@ Hints:
         $result = sam deploy `
             --template-file Templates/sam.policies.yaml `
             --stack-name $StackName `
-            --parameter-overrides SystemKey=$SystemKey SystemSuffixParameter=$SystemSuffix EnvironmentParameter=$Environment KeyValueStoreArnParameter=$KeyValueStoreArn `
+            --parameter-overrides SystemKey=$SystemKey SystemSuffixParameter=$SystemSuffix EnvironmentParameter=$Environment KeyValueStoreArnParameter=$KeyValueStoreArn RootDomainParameter=$RootDomain `
             --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND `
             --region $Region `
             --profile $ProfileName 2>&1

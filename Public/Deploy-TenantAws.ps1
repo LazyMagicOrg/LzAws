@@ -159,10 +159,26 @@ Hints:
             }
             Write-LzAwsVerbose "CDN Certificate ARN: $CdnCertificateArn"
 
+            # --- Get policies stack outputs ---
+            $PolicyStackName = "$SystemKey---policies"
+            $PolicyStackOutputDict = Get-StackOutputs $PolicyStackName
+            $ResponseHeadersPolicyId = $PolicyStackOutputDict["ResponseHeadersPolicyId"]
+            if ([string]::IsNullOrWhiteSpace($ResponseHeadersPolicyId)) {
+                $errorMessage = @"
+Error: ResponseHeadersPolicyId not found in policies stack outputs
+Function: Deploy-TenantAws
+Hints:
+  - Verify the policies stack was deployed successfully
+  - Run Deploy-PoliciesAws first
+"@
+                throw $errorMessage
+            }
+            Write-LzAwsVerbose "Response Headers Policy ID: $ResponseHeadersPolicyId"
+
             # --- Read CDN config from systemconfig ---
             $CdnConfig = $Config.CDN
             $PriceClass = "PriceClass_100"
-            $DefaultRootObject = "app/index.html"
+            $DefaultRootObject = "index.html"
             if ($null -ne $CdnConfig) {
                 if (-not [string]::IsNullOrWhiteSpace($CdnConfig.PriceClass)) {
                     $PriceClass = $CdnConfig.PriceClass
@@ -173,14 +189,17 @@ Hints:
             }
 
             # --- Build parameters ---
+            $SystemSuffix = $Config.SystemSuffix
             $ParametersDict = @{
                 "SystemKeyParameter"          = $SystemKey
+                "SystemSuffixParameter"       = $SystemSuffix
                 "EnvironmentParameter"        = $Environment
                 "RootDomainParameter"         = $DomainName
                 "HostedZoneIdParameter"       = $PublicHostedZoneId
                 "CdnCertificateArnParameter"  = $CdnCertificateArn
                 "PriceClassParameter"         = $PriceClass
                 "DefaultRootObjectParameter"  = $DefaultRootObject
+                "ResponseHeadersPolicyIdParameter" = $ResponseHeadersPolicyId
             }
 
             $TemplateParameters = Get-TemplateParameters -TemplatePath "Templates/sam.tenant.yaml"
