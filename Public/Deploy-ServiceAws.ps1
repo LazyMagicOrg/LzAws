@@ -54,12 +54,11 @@ Hints:
 
         # =================================================================
         # ECS TEMPLATES PATH: Check for Templates/sam.service.yaml FIRST
-        # When Generated/sam.Service.g.yaml doesn't exist but
-        # Templates/sam.service.yaml does, use the ECS deployment path.
+        # When Templates/sam.service.yaml exists, always use the ECS
+        # deployment path (even if Generated/sam.Service.g.yaml also exists).
         # This skips packaging, S3 upload, and auth stack iteration.
         # =================================================================
-        $UseEcsTemplate = (-not (Test-Path -Path "Generated/sam.Service.g.yaml" -PathType Leaf)) -and
-                          (Test-Path -Path "Templates/sam.service.yaml" -PathType Leaf)
+        $UseEcsTemplate = (Test-Path -Path "Templates/sam.service.yaml" -PathType Leaf)
 
         if ($UseEcsTemplate) {
             Write-LzAwsVerbose "Using Templates/sam.service.yaml (ECS deployment path)"
@@ -130,6 +129,34 @@ Hints:
             $SecretsConfig = $Config.SecretsManager
             if ($null -ne $SecretsConfig -and $SecretsConfig.SecretPrefix) {
                 $ParametersDict["SecretPrefixParameter"] = $SecretsConfig.SecretPrefix
+            }
+
+            # Detect retained EFS filesystem (DeletionPolicy: Retain)
+            # If the service stack was deleted, the EFS filesystem survives with its
+            # Name tag. On re-deploy, we find it by tag and reuse it.
+            $EfsTagName = "$SystemKey-efs"
+            Write-LzAwsVerbose "Checking for existing EFS filesystem with Name tag: $EfsTagName"
+            try {
+                $efsJson = aws efs describe-file-systems `
+                    --query "FileSystems[?Tags[?Key=='Name' && Value=='$EfsTagName'] && LifeCycleState=='available'].FileSystemId" `
+                    --output json `
+                    --profile $ProfileName `
+                    --region $Region 2>&1
+
+                if ($LASTEXITCODE -eq 0) {
+                    $efsIds = ($efsJson | ConvertFrom-Json)
+                    if ($efsIds.Count -gt 0) {
+                        $ExistingEfsId = $efsIds[0]
+                        $ParametersDict["ExistingEfsFileSystemIdParameter"] = $ExistingEfsId
+                        Write-Host "Found existing EFS filesystem: $ExistingEfsId (reusing retained filesystem)" -ForegroundColor Cyan
+                    } else {
+                        Write-LzAwsVerbose "No existing EFS filesystem found — will create new"
+                    }
+                } else {
+                    Write-LzAwsVerbose "Warning: Failed to query EFS filesystems: $efsJson"
+                }
+            } catch {
+                Write-LzAwsVerbose "Warning: Failed to check for existing EFS: $($_.Exception.Message)"
             }
 
             # Discover ECR images
