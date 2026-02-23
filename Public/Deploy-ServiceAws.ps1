@@ -144,7 +144,7 @@ Hints:
                     --region $Region 2>&1
 
                 if ($LASTEXITCODE -eq 0) {
-                    $efsIds = ($efsJson | ConvertFrom-Json)
+                    $efsIds = @($efsJson | ConvertFrom-Json)
                     if ($efsIds.Count -gt 0) {
                         $ExistingEfsId = $efsIds[0]
                         $ParametersDict["ExistingEfsFileSystemIdParameter"] = $ExistingEfsId

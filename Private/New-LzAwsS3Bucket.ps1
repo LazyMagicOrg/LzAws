@@ -162,7 +162,7 @@ Hints:
     # Apply bucket policy
     Write-LzAwsVerbose "Applying bucket policy..."
     try {
-        $null = Write-S3BucketPolicy -BucketName $CleanBucketName -Policy $PolicyJson
+        $null = Write-S3BucketPolicy -BucketName $CleanBucketName -Policy $PolicyJson -Region $Region -ProfileName $ProfileName
     }
     catch {
         $errorMessage = @"
