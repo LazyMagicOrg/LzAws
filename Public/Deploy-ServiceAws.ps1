@@ -5,11 +5,14 @@
     Deploys or updates service infrastructure in AWS using CloudFormation/SAM templates.
     Supports two modes:
     1. ECS mode: If Templates/sam.service.yaml exists (and Generated/sam.Service.g.yaml
-       does not), deploys the ECS service template directly using system stack outputs.
+       does not), deploys the ECS service template directly using system and data stack outputs.
+       Reads EFS references (file system ID, access point IDs) from the data stack.
        Skips packaging, S3 upload, and auth stack iteration.
     2. Generated mode: Falls back to the standard LazyMagic workflow using
        Generated/sam.Service.g.yaml with sam package, S3 upload, and
        deploymentconfig.g.yaml auth stack iteration.
+    Note: EFS filesystem, mount targets, and access points are created in the data stack
+    (Deploy-DataAws). This stack receives them as parameters.
 .PARAMETER None
     This cmdlet does not accept any parameters. It uses system configuration files
     to determine deployment settings.
@@ -20,6 +23,7 @@
     - Requires valid AWS credentials and appropriate permissions
     - Must be run from the AWSTemplates directory
     - Requires system configuration files and SAM templates
+    - Data stack must be deployed first (Deploy-DataAws) for EFS references
     - Will configure the use of authentication resources created with Deploy-AuthsAws
 .OUTPUTS
     None
@@ -131,32 +135,26 @@ Hints:
                 $ParametersDict["SecretPrefixParameter"] = $SecretsConfig.SecretPrefix
             }
 
-            # Detect retained EFS filesystem (DeletionPolicy: Retain)
-            # If the service stack was deleted, the EFS filesystem survives with its
-            # Name tag. On re-deploy, we find it by tag and reuse it.
-            $EfsTagName = "$SystemKey-efs"
-            Write-LzAwsVerbose "Checking for existing EFS filesystem with Name tag: $EfsTagName"
+            # Read data stack outputs (if data stack exists) to get EFS references
+            # (FileSystemId, access point IDs, etc.)
+            $DataStackName = "$SystemKey---data"
+            Write-LzAwsVerbose "Getting data stack outputs from '$DataStackName'"
             try {
-                $efsJson = aws efs describe-file-systems `
-                    --query "FileSystems[?Tags[?Key=='Name' && Value=='$EfsTagName'] && LifeCycleState=='available'].FileSystemId" `
-                    --output json `
-                    --profile $ProfileName `
-                    --region $Region 2>&1
-
-                if ($LASTEXITCODE -eq 0) {
-                    $efsIds = @($efsJson | ConvertFrom-Json)
-                    if ($efsIds.Count -gt 0) {
-                        $ExistingEfsId = $efsIds[0]
-                        $ParametersDict["ExistingEfsFileSystemIdParameter"] = $ExistingEfsId
-                        Write-Host "Found existing EFS filesystem: $ExistingEfsId (reusing retained filesystem)" -ForegroundColor Cyan
-                    } else {
-                        Write-LzAwsVerbose "No existing EFS filesystem found — will create new"
+                $DataStackOutputDict = Get-StackOutputs $DataStackName
+                if ($null -ne $DataStackOutputDict -and $DataStackOutputDict.Count -gt 0) {
+                    Write-Host "Found data stack '$DataStackName' with $($DataStackOutputDict.Count) outputs" -ForegroundColor Cyan
+                    foreach ($OutputKey in $DataStackOutputDict.Keys) {
+                        $ParameterName = $OutputKey + "Parameter"
+                        if (-not $ParametersDict.ContainsKey($ParameterName)) {
+                            $ParametersDict[$ParameterName] = $DataStackOutputDict[$OutputKey]
+                            Write-LzAwsVerbose "Added data stack output: $ParameterName"
+                        }
                     }
                 } else {
-                    Write-LzAwsVerbose "Warning: Failed to query EFS filesystems: $efsJson"
+                    Write-LzAwsVerbose "Data stack not found or has no outputs — deploy it with Deploy-DataAws"
                 }
             } catch {
-                Write-LzAwsVerbose "Warning: Failed to check for existing EFS: $($_.Exception.Message)"
+                Write-LzAwsVerbose "Data stack '$DataStackName' not yet deployed — deploy it with Deploy-DataAws"
             }
 
             # Discover ECR images

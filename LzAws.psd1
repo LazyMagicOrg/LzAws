@@ -72,6 +72,7 @@ PowerShellVersion = '5.1'
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
 FunctionsToExport = @(
     'Deploy-AuthsAws',
+    'Deploy-DataAws',
     'Deploy-DockerAws',
     'Deploy-PoliciesAws',
     'Deploy-ServiceAws',
@@ -79,15 +80,16 @@ FunctionsToExport = @(
     'Deploy-TenantAws',
     'Deploy-TenantsAws',
     'Deploy-WebappAws',
+    'Get-AssetsAws',
     'Get-AwsCommands',
     'Get-CDNLogAws',
     'Get-CertificateAws',
     'Get-SystemConfig',
     'Get-TenantConfigAws',
     'Get-VersionAws',
-    'Get-AssetsAws',
     'Invoke-DockerComposeAws',
     'Open-TunnelAws',
+    'Restore-RdsAws',
     'Set-Admin',
     'Sync-DockerPackages'
 )

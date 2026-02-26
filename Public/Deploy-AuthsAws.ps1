@@ -60,6 +60,27 @@ function Deploy-AuthsAws {
                 }
             }
 
+            # Read data stack outputs (if data stack exists) to get DB/secrets references
+            $DataStackName = "$SystemKey---data"
+            Write-LzAwsVerbose "Getting data stack outputs from '$DataStackName'"
+            try {
+                $DataStackOutputDict = Get-StackOutputs $DataStackName
+                if ($null -ne $DataStackOutputDict -and $DataStackOutputDict.Count -gt 0) {
+                    Write-Host "Found data stack '$DataStackName' with $($DataStackOutputDict.Count) outputs" -ForegroundColor Cyan
+                    foreach ($OutputKey in $DataStackOutputDict.Keys) {
+                        $ParameterName = $OutputKey + "Parameter"
+                        if (-not $ParametersDict.ContainsKey($ParameterName)) {
+                            $ParametersDict[$ParameterName] = $DataStackOutputDict[$OutputKey]
+                            Write-LzAwsVerbose "Added data stack output: $ParameterName"
+                        }
+                    }
+                } else {
+                    Write-LzAwsVerbose "Data stack not found or has no outputs — deploy it with Deploy-DataAws"
+                }
+            } catch {
+                Write-LzAwsVerbose "Data stack '$DataStackName' not yet deployed — deploy it with Deploy-DataAws"
+            }
+
             # Add ECS-specific config values
             $EcsConfig = $Config.ECS
             if ($null -ne $EcsConfig) {
