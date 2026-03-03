@@ -68,11 +68,29 @@ Deploy-TenantAws -TenantKey "tenant1"
 ### Configuration
 The module uses YAML configuration files discovered by searching up the directory tree using `Find-FileUp`.
 
-**Resolution order:**
-1. `systemconfig.yaml` — if found, it is used and no environment lookup occurs
-2. If `systemconfig.yaml` is not found, the environment is resolved and `systemconfig.{env}.yaml` is used (e.g., `systemconfig.dev.yaml`)
+**System config resolution** (`Get-SystemConfig`):
 
-**Environment resolution** (via `Get-Environment`, only when `systemconfig.yaml` is absent):
+When `-SystemKey` is provided:
+1. `systemconfig.{systemkey}.{env}.yaml` (e.g., `systemconfig.ezra.dev.yaml`)
+2. `systemconfig.{systemkey}.yaml` (env-agnostic)
+3. `systemconfig.{env}.yaml` (legacy)
+4. `systemconfig.yaml` (legacy)
+
+When `-SystemKey` is omitted (auto-detect):
+1. Glob for `systemconfig.*.{env}.yaml` — exactly one match required
+2. Glob for `systemconfig.*.yaml` — env-agnostic, 3 dot-segments
+3. `systemconfig.{env}.yaml` (legacy)
+4. `systemconfig.yaml` (legacy)
+
+SystemKey and Environment are **derived from the filename** and injected into the config dict.
+
+**Tenant config resolution** (`Get-TenantConfig`):
+1. Glob for `tenantconfig.*.{tenantkey}.{env}.yaml` (e.g., `tenantconfig.ezra.ezra.dev.yaml`)
+2. Legacy fallbacks: `tenantconfig.{tenantkey}.{env}.yaml`, `config.{tenantkey}.{env}.yaml`, etc.
+
+SystemKey, TenantKey, and Environment are **derived from the filename**.
+
+**Environment resolution** (via `Get-Environment`):
 1. Search for `env.yaml` in the folder hierarchy. If found, use its `env` property (e.g., `env: dev`)
 2. If no `env.yaml`, scan the current directory path for folder names matching `_Dev*`, `_Test*`, or `_Prod*` → maps to `dev`, `test`, `prod`
 
@@ -181,9 +199,9 @@ Get-TestError     # Retrieves test error
 
 ### 4. Configuration Management
 - Configuration flows from system → tenant → subtenant levels
-- `Get-SystemConfig` tries `systemconfig.yaml` first; if not found, resolves environment via `Get-Environment` and loads `systemconfig.{env}.yaml`
-- No merge occurs — it's one file or the other
-- Configuration is cached in `$script:Config` after first load
+- `Get-SystemConfig` accepts optional `-SystemKey` parameter. When provided, looks for `systemconfig.{systemkey}.{env}.yaml` directly. When omitted, auto-detects by globbing. SystemKey and Environment are derived from the filename.
+- `Get-TenantConfig` accepts `-TenantKey` parameter. Globs for `tenantconfig.*.{tenantkey}.{env}.yaml` to discover the config with SystemKey segment. SystemKey, TenantKey, and Environment are derived from the filename.
+- Configuration is cached in `$script:SystemConfig` (system) or `$script:Config` (tenant) after load
 - Stack outputs are retrieved via `Get-StackOutputs` and merged into parameters
 - Always check `if ($null -eq $Config)` before using configuration
 

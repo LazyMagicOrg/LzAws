@@ -13,7 +13,7 @@
     Deploys the CDN certificate stack to us-east-1
 .NOTES
     Requires valid AWS credentials and a Route 53 public hosted zone for the domain.
-    The stack is deployed to us-east-1, NOT the region in systemconfig.
+    The stack is deployed to us-east-1, NOT the region in tenantconfig.
 .OUTPUTS
     System.Boolean - $true on success, $false on failure
 #>
@@ -23,24 +23,31 @@ function Deploy-CdnCertAws {
 
     Write-LzAwsVerbose "Starting CDN certificate deployment to us-east-1"
     try {
-        $null = Get-SystemConfig
+        $null = Get-TenantConfig
         $ProfileName = $script:ProfileName
         $Config = $script:Config
         $SystemKey = $Config.SystemKey
+        $TenantKey = $Config.TenantKey
+        if ([string]::IsNullOrWhiteSpace($SystemKey)) {
+            throw "SystemKey not found in tenantconfig. Add 'SystemKey: `"ezra`"' to your tenantconfig file."
+        }
+        if ([string]::IsNullOrWhiteSpace($TenantKey)) {
+            throw "TenantKey not found in tenantconfig. Add 'TenantKey' to your tenantconfig file."
+        }
         $DomainName = $Config.DefaultTenant
 
         if ([string]::IsNullOrWhiteSpace($DomainName)) {
             $errorMessage = @"
-Error: DefaultTenant is missing or empty in systemconfig
+Error: DefaultTenant is missing or empty in tenantconfig
 Function: Deploy-CdnCertAws
 Hints:
-  - Add a 'DefaultTenant' property to your systemconfig file
+  - Add a 'DefaultTenant' property to your tenantconfig file
   - Example: DefaultTenant: "ezradev.click"
 "@
             throw $errorMessage
         }
 
-        $StackName = "$SystemKey---cdn-cert"
+        $StackName = "$SystemKey-$TenantKey--cdn-cert"
 
         # Resolve the public hosted zone ID for DNS validation
         $EcsConfig = $Config.ECS
@@ -64,7 +71,8 @@ Hints:
         }
 
         $ParametersDict = @{
-            "SystemKeyParameter"     = $SystemKey
+            "SystemKeyParameter"   = $SystemKey
+            "TenantKeyParameter"     = $TenantKey
             "DomainNameParameter"    = $DomainName
             "HostedZoneIdParameter"  = $PublicHostedZoneId
         }

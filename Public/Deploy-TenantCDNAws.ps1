@@ -1,39 +1,41 @@
 <#
 .SYNOPSIS
-    Deploys a tenant configuration to AWS
+    Deploys a tenant CDN configuration to AWS
 .DESCRIPTION
     Deploys or updates a tenant's CloudFront distribution and related resources.
 
     Supports two deployment architectures, detected automatically:
 
     ECS architecture (Config.ECS exists):
+      - Deploys ACM wildcard certificate to us-east-1 (CloudFront requirement)
       - Creates S3 bucket for WASM/static assets (private, accessed via OAC)
       - Creates CloudFront distribution with S3 + ALB origins
       - Creates Origin Access Control for S3
       - Creates Route53 records pointing root domain and wildcard to CloudFront
       - No TenantKey parameter required (uses DefaultTenant from config)
-      - Requires system stack (Deploy-SystemAws) and CDN certificate (Deploy-CdnCertAws)
+      - Requires system stack (Deploy-SystemAws)
 
     Lambda architecture (Config.Tenants exists):
       - Deploys per-tenant CloudFront distribution with Lambda origins
-      - Requires TenantKey parameter matching a tenant in systemconfig
-      - Requires policies stack (Deploy-PoliciesAws)
+      - Requires TenantKey parameter matching a tenant in tenantconfig
+      - Requires policies stack (Deploy-TenantPoliciesAws)
 .PARAMETER TenantKey
-    The unique identifier for the tenant. Required for Lambda architecture.
+    The unique identifier for the CDN tenant. Required for Lambda architecture.
     Ignored for ECS architecture (uses DefaultTenant from config).
 .EXAMPLE
-    Deploy-TenantAws
-    Deploys the ECS tenant stack (CloudFront + S3 + ALB proxy)
+    Deploy-TenantCDNAws
+    Deploys the ECS tenant CDN stack (CloudFront + S3 + ALB proxy)
 .EXAMPLE
-    Deploy-TenantAws -TenantKey "tenant123"
-    Deploys the specified tenant configuration (Lambda architecture)
+    Deploy-TenantCDNAws -TenantKey "tenant123"
+    Deploys the specified tenant CDN configuration (Lambda architecture)
 .NOTES
     Requires valid AWS credentials and appropriate permissions.
-    Architecture is auto-detected from systemconfig.
+    Architecture is auto-detected from tenantconfig.
+    The CDN certificate is deployed automatically to us-east-1 as a sub-step.
 .OUTPUTS
     System.Boolean - $true on success, $false on failure
 #>
-function Deploy-TenantAws {
+function Deploy-TenantCDNAws {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory=$false)]
@@ -41,12 +43,19 @@ function Deploy-TenantAws {
     )
 
     try {
-        $null = Get-SystemConfig
+        $null = Get-TenantConfig -TenantKey $TenantKey
         $ProfileName = $script:ProfileName
         $Region = $script:Region
         $Config = $script:Config
         $Environment = $Config.Environment
+        # Use ConfigTenantKey to avoid collision with $TenantKey parameter (Lambda architecture)
+        $ConfigTenantKey = $Config.TenantKey
+
+        # Get system key (needed for stack naming in both architectures)
         $SystemKey = $Config.SystemKey
+        if ([string]::IsNullOrWhiteSpace($SystemKey)) {
+            throw "SystemKey not found in tenantconfig. Add 'SystemKey: `"ezra`"' to your tenantconfig file."
+        }
 
         # Detect architecture: ECS (CloudFront + S3 + ALB) vs Lambda
         $IsEcs = ($null -ne $Config.ECS)
@@ -55,27 +64,27 @@ function Deploy-TenantAws {
             # ---------------------------------------------------------------
             # ECS Architecture: CloudFront + S3 bucket + ALB proxy
             # ---------------------------------------------------------------
-            Write-LzAwsVerbose "Deploying tenant stack (ECS architecture)"
+            Write-LzAwsVerbose "Deploying tenant CDN stack (ECS architecture)"
 
             $DomainName = $Config.DefaultTenant
             if ([string]::IsNullOrWhiteSpace($DomainName)) {
                 $errorMessage = @"
-Error: DefaultTenant is missing or empty in systemconfig
-Function: Deploy-TenantAws
+Error: DefaultTenant is missing or empty in tenantconfig
+Function: Deploy-TenantCDNAws
 Hints:
-  - Add a 'DefaultTenant' property to your systemconfig file
+  - Add a 'DefaultTenant' property to your tenantconfig file
   - Example: DefaultTenant: "ezradev.click"
 "@
                 throw $errorMessage
             }
 
-            $StackName = "$SystemKey---tenant"
+            $StackName = "$SystemKey-$ConfigTenantKey--cdn"
 
             # Verify template exists
             if (-not (Test-Path -Path "Templates/sam.tenant.yaml" -PathType Leaf)) {
                 $errorMessage = @"
 Error: Template file not found: Templates/sam.tenant.yaml
-Function: Deploy-TenantAws
+Function: Deploy-TenantCDNAws
 Hints:
   - Check if the template file exists in the Templates directory
   - Ensure you are running from the AWSTemplates directory
@@ -86,13 +95,13 @@ Hints:
             # --- Get infrastructure stack outputs ---
             $InfraStackName = "$SystemKey---system"
             Write-LzAwsVerbose "Reading system stack outputs from $InfraStackName"
-            $SystemStackOutputDict = Get-StackOutputs $InfraStackName
+            $InfraStackOutputDict = Get-StackOutputs $InfraStackName
 
-            $AlbDnsName = $SystemStackOutputDict["AlbDnsName"]
+            $AlbDnsName = $InfraStackOutputDict["AlbDnsName"]
             if ([string]::IsNullOrWhiteSpace($AlbDnsName)) {
                 $errorMessage = @"
 Error: AlbDnsName not found in stack outputs for '$InfraStackName'
-Function: Deploy-TenantAws
+Function: Deploy-TenantCDNAws
 Hints:
   - Verify the infrastructure stack was deployed successfully
   - Run Deploy-SystemAws first
@@ -100,11 +109,11 @@ Hints:
                 throw $errorMessage
             }
 
-            $PublicHostedZoneId = $SystemStackOutputDict["PublicHostedZoneId"]
+            $PublicHostedZoneId = $InfraStackOutputDict["PublicHostedZoneId"]
             if ([string]::IsNullOrWhiteSpace($PublicHostedZoneId)) {
                 $errorMessage = @"
 Error: PublicHostedZoneId not found in stack outputs for '$InfraStackName'
-Function: Deploy-TenantAws
+Function: Deploy-TenantCDNAws
 Hints:
   - Verify the infrastructure stack was deployed successfully
   - Run Deploy-SystemAws first
@@ -112,12 +121,71 @@ Hints:
                 throw $errorMessage
             }
 
-            # --- Get CDN certificate ARN from us-east-1 ---
-            $CertStackName = "$SystemKey---cdn-cert"
-            Write-LzAwsVerbose "Reading CDN certificate ARN from $CertStackName in us-east-1"
+            # --- Deploy CDN certificate to us-east-1 (CloudFront requirement) ---
+            $CertStackName = "$SystemKey-$ConfigTenantKey--cdn-cert"
 
-            # Get-StackOutputs uses $script:Region, but the cert stack is in us-east-1.
-            # Call AWS CLI directly to get the cert stack outputs from us-east-1.
+            # Verify cert template exists
+            if (-not (Test-Path -Path "Templates/sam.cdn-cert.yaml" -PathType Leaf)) {
+                $errorMessage = @"
+Error: Template file not found: Templates/sam.cdn-cert.yaml
+Function: Deploy-TenantCDNAws
+Hints:
+  - Check if the template file exists in the Templates directory
+  - Ensure you are running from the AWSTemplates directory
+"@
+                throw $errorMessage
+            }
+
+            $CertParametersDict = @{
+                "SystemKeyParameter"   = $SystemKey
+                "TenantKeyParameter"   = $ConfigTenantKey
+                "DomainNameParameter"  = $DomainName
+                "HostedZoneIdParameter" = $PublicHostedZoneId
+            }
+
+            $CertTemplateParameters = Get-TemplateParameters -TemplatePath "Templates/sam.cdn-cert.yaml"
+            $FilteredCertParametersDict = @{}
+            foreach ($Key in $CertParametersDict.Keys) {
+                if ($CertTemplateParameters -contains $Key) {
+                    $FilteredCertParametersDict[$Key] = $CertParametersDict[$Key]
+                }
+            }
+            $CertParameters = ConvertTo-ParameterOverrides -parametersDict $FilteredCertParametersDict
+
+            Write-Host "Deploying CDN certificate stack $CertStackName to us-east-1"
+            $certResult = sam deploy `
+                --template-file Templates/sam.cdn-cert.yaml `
+                --stack-name $CertStackName `
+                --parameter-overrides $CertParameters `
+                --capabilities CAPABILITY_IAM `
+                --region us-east-1 `
+                --profile $ProfileName 2>&1
+
+            $certExitCode = $LASTEXITCODE
+            if ($certExitCode -ne 0) {
+                $certResults = $certResult | Out-String
+                if ($certResults -match "No changes to deploy") {
+                    Write-LzAwsVerbose "CDN certificate stack is up to date."
+                } else {
+                    $errorMessage = @"
+Error: SAM deployment failed for CDN certificate
+Function: Deploy-TenantCDNAws
+Hints:
+  - Check AWS CloudFormation console in us-east-1 for detailed errors
+  - If the certificate is pending validation, check ACM console and
+    create DNS validation records in Route 53 if needed
+  - Verify you have required IAM permissions
+Error Details: SAM deployment failed with exit code $certExitCode
+Command Output: $certResults
+"@
+                    throw $errorMessage
+                }
+            } else {
+                Write-Host "CDN certificate deployed to us-east-1" -ForegroundColor Green
+            }
+
+            # --- Read CDN certificate ARN from us-east-1 ---
+            Write-LzAwsVerbose "Reading CDN certificate ARN from $CertStackName in us-east-1"
             $certStackJson = aws cloudformation describe-stacks `
                 --stack-name $CertStackName `
                 --region us-east-1 `
@@ -127,11 +195,10 @@ Hints:
             if ($LASTEXITCODE -ne 0) {
                 $errorMessage = @"
 Error: Failed to read CDN certificate stack '$CertStackName' in us-east-1
-Function: Deploy-TenantAws
+Function: Deploy-TenantCDNAws
 Hints:
-  - Deploy the CDN certificate first: Deploy-CdnCertAws
-  - Verify the certificate stack exists in us-east-1
-  - Check that the certificate has been issued (not pending validation)
+  - Check if the certificate has been issued (not pending validation)
+  - Check ACM console in us-east-1 and create DNS validation records if needed
 Error Details: $certStackJson
 "@
                 throw $errorMessage
@@ -149,33 +216,32 @@ Error Details: $certStackJson
             if ([string]::IsNullOrWhiteSpace($CdnCertificateArn)) {
                 $errorMessage = @"
 Error: CdnCertificateArn not found in CDN certificate stack outputs
-Function: Deploy-TenantAws
+Function: Deploy-TenantCDNAws
 Hints:
   - Verify the CDN certificate stack deployed successfully in us-east-1
-  - Check if the ACM certificate has been issued
-  - Run Deploy-CdnCertAws if not already deployed
+  - Check if the ACM certificate has been issued (pending validation?)
 "@
                 throw $errorMessage
             }
             Write-LzAwsVerbose "CDN Certificate ARN: $CdnCertificateArn"
 
             # --- Get policies stack outputs ---
-            $PolicyStackName = "$SystemKey---policies"
+            $PolicyStackName = "$SystemKey-$ConfigTenantKey--policies"
             $PolicyStackOutputDict = Get-StackOutputs $PolicyStackName
             $ResponseHeadersPolicyId = $PolicyStackOutputDict["ResponseHeadersPolicyId"]
             if ([string]::IsNullOrWhiteSpace($ResponseHeadersPolicyId)) {
                 $errorMessage = @"
 Error: ResponseHeadersPolicyId not found in policies stack outputs
-Function: Deploy-TenantAws
+Function: Deploy-TenantCDNAws
 Hints:
   - Verify the policies stack was deployed successfully
-  - Run Deploy-PoliciesAws first
+  - Run Deploy-TenantPoliciesAws first
 "@
                 throw $errorMessage
             }
             Write-LzAwsVerbose "Response Headers Policy ID: $ResponseHeadersPolicyId"
 
-            # --- Read CDN config from systemconfig ---
+            # --- Read CDN config from tenantconfig ---
             $CdnConfig = $Config.CDN
             $PriceClass = "PriceClass_100"
             $DefaultRootObject = "index.html"
@@ -189,10 +255,11 @@ Hints:
             }
 
             # --- Build parameters ---
-            $SystemSuffix = $Config.SystemSuffix
+            $TenantSuffix = $Config.TenantSuffix
             $ParametersDict = @{
-                "SystemKeyParameter"          = $SystemKey
-                "SystemSuffixParameter"       = $SystemSuffix
+                "SystemKeyParameter"        = $SystemKey
+                "TenantKeyParameter"          = $ConfigTenantKey
+                "TenantSuffixParameter"       = $TenantSuffix
                 "EnvironmentParameter"        = $Environment
                 "RootDomainParameter"         = $DomainName
                 "HostedZoneIdParameter"       = $PublicHostedZoneId
@@ -212,7 +279,7 @@ Hints:
             $Parameters = ConvertTo-ParameterOverrides -parametersDict $FilteredParametersDict
 
             # --- Deploy ---
-            Write-Host "Deploying tenant stack $StackName"
+            Write-Host "Deploying tenant CDN stack $StackName"
             $result = sam deploy `
                 --template-file Templates/sam.tenant.yaml `
                 --stack-name $StackName `
@@ -225,11 +292,11 @@ Hints:
             if ($exitCode -ne 0) {
                 $results = $result | Out-String
                 if ($results -match "No changes to deploy") {
-                    Write-LzAwsVerbose "No changes to deploy. Tenant stack is up to date."
+                    Write-LzAwsVerbose "No changes to deploy. Tenant CDN stack is up to date."
                 } else {
                     $errorMessage = @"
-Error: SAM deployment failed for tenant stack
-Function: Deploy-TenantAws
+Error: SAM deployment failed for tenant CDN stack
+Function: Deploy-TenantCDNAws
 Hints:
   - Check AWS CloudFormation console for detailed errors
   - Verify you have required IAM permissions
@@ -248,7 +315,7 @@ Command Output: $($result | Out-String)
                 $distributionId = $cdnOutputs["CloudFrontDistributionId"]
                 $cfDomain = $cdnOutputs["CloudFrontDistributionDomainName"]
 
-                Write-Host "Successfully deployed tenant stack" -ForegroundColor Green
+                Write-Host "Successfully deployed tenant CDN stack" -ForegroundColor Green
                 Write-Host ""
                 Write-Host "CloudFront Distribution: $cfDomain" -ForegroundColor Cyan
                 Write-Host "Distribution ID: $distributionId" -ForegroundColor Cyan
@@ -266,23 +333,23 @@ Command Output: $($result | Out-String)
             if ([string]::IsNullOrWhiteSpace($TenantKey)) {
                 $errorMessage = @"
 Error: TenantKey parameter is required for Lambda architecture
-Function: Deploy-TenantAws
+Function: Deploy-TenantCDNAws
 Hints:
-  - Provide a TenantKey: Deploy-TenantAws -TenantKey "mytenant"
-  - The TenantKey must match a tenant defined in systemconfig
-  - For ECS architecture, add an ECS section to systemconfig
+  - Provide a TenantKey: Deploy-TenantCDNAws -TenantKey "mytenant"
+  - The TenantKey must match a tenant defined in tenantconfig
+  - For ECS architecture, add an ECS section to tenantconfig
 "@
                 throw $errorMessage
             }
 
             Deploy-TenantResourcesAws $TenantKey
 
-            Write-LzAwsVerbose "Deploying tenant stack (Lambda architecture)"
+            Write-LzAwsVerbose "Deploying tenant CDN stack (Lambda architecture)"
 
-            $SystemSuffix = $Config.SystemSuffix
+            $TenantSuffix = $Config.TenantSuffix
 
-            $StackName = $Config.SystemKey + "-" + $TenantKey + "--tenant"
-            $ArtifactsBucket = $Config.SystemKey + "---artifacts-" + $Config.SystemSuffix
+            $StackName = $ConfigTenantKey + "-" + $TenantKey + "--tenant"
+            $ArtifactsBucket = $SystemKey + "-" + $ConfigTenantKey + "--artifacts-" + $Config.TenantSuffix
             $Tenant = $Config.Tenants[$TenantKey]
             # Validate required tenant properties
             $RequiredProps = @('RootDomain', 'HostedZoneId', 'AcmCertificateArn')
@@ -290,9 +357,9 @@ Hints:
                 if (-not $Tenant.ContainsKey($Prop) -or [string]::IsNullOrWhiteSpace($Tenant[$Prop])) {
                     $errorMessage = @"
 Error: Missing required property '$Prop' for tenant '$TenantKey'
-Function: Deploy-TenantAws
+Function: Deploy-TenantCDNAws
 Hints:
-  - Check tenant configuration in systemconfig.yaml
+  - Check tenant configuration in tenantconfig.yaml
   - Verify all required properties are defined
   - Ensure property values are not empty
 "@
@@ -304,9 +371,9 @@ Hints:
             if([string]::IsNullOrWhiteSpace($RootDomain)) {
                 $errorMessage = @"
 Error: RootDomain is missing or empty for tenant '$TenantKey'
-Function: Deploy-TenantAws
+Function: Deploy-TenantCDNAws
 Hints:
-  - Check tenant configuration in systemconfig.yaml
+  - Check tenant configuration in tenantconfig.yaml
   - Verify the RootDomain property is defined
   - Ensure the RootDomain value is not empty
 "@
@@ -315,21 +382,21 @@ Hints:
 
             $HostedZoneId = $Tenant.HostedZoneId
             $AcmCertificateArn = $Tenant.AcmCertificateArn
-            $TenantSuffix = $SystemSuffix # default
+            $CdnTenantSuffix = $TenantSuffix # default
             if($Tenant.ContainsKey('TenantSuffix') -and ![string]::IsNullOrWhiteSpace($Tenant.TenantSuffix)) {
-                $TenantSuffix = $Tenant.TenantSuffix
+                $CdnTenantSuffix = $Tenant.TenantSuffix
             }
 
             # Get stack outputs
-            $PolicyStackOutputDict = Get-StackOutputs ($Config.SystemKey + "---policies")
+            $PolicyStackOutputDict = Get-StackOutputs ($SystemKey + "-" + $ConfigTenantKey + "--policies")
 
             # Create the parameters dictionary
             $ParametersDict = @{
-                # SystemConfigFile values
+                # TenantConfig values
                 "SystemKeyParameter" = $SystemKey
                 "EnvironmentParameter" = $Environment
                 "TenantKeyParameter" = $TenantKey
-                "GuidParameter" = $TenantSuffix
+                "GuidParameter" = $CdnTenantSuffix
                 "RootDomainParameter" = $RootDomain
                 "HostedZoneIdParameter" = $HostedZoneId
                 "AcmCertificateArnParameter" = $AcmCertificateArn
@@ -364,7 +431,7 @@ Hints:
                 } else {
                     $errorMessage = @"
 Error: SAM deployment failed for tenant '$TenantKey'
-Function: Deploy-TenantAws
+Function: Deploy-TenantCDNAws
 Hints:
   - Check AWS CloudFormation console for detailed errors
   - Verify you have required IAM permissions
@@ -377,7 +444,7 @@ Command Output: $($result | Out-String)
                 }
             }
             else {
-                Write-LzAwsVerbose "Tenant deployment completed successfully for $TenantKey"
+                Write-LzAwsVerbose "Tenant CDN deployment completed successfully for $TenantKey"
             }
         }
     }

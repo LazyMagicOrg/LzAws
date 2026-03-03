@@ -58,7 +58,7 @@ Hints:
 
     # Get tenant config and KVS ARN
 
-    $KvsEntriesJson = Get-TenantConfig $TenantKey 
+    $KvsEntriesJson = Get-TenantKVSEntries $TenantKey
 
     try {
         $KvsEntries = ConvertFrom-Json $KvsEntriesJson -Depth 10

@@ -193,11 +193,11 @@ Hints:
 
         # Step 3: Get system configuration
         Write-LzAwsVerbose "Loading system configuration"
-        $SystemConfig = Get-SystemConfig
+        $null = Get-SystemConfig
         $ProfileName = $script:ProfileName
         $Region = $script:Region
         $Account = $script:Account
-        $Config = $SystemConfig.Config
+        $Config = $script:SystemConfig
 
         if ($null -eq $Config) {
             $errorMessage = @"

@@ -1,24 +1,29 @@
 <#
 .SYNOPSIS
-    Deploys a web application to AWS infrastructure
+    Publishes a web application to the S3 bucket created by the CDN stack.
 .DESCRIPTION
-    Deploys a specified web application to AWS, handling all necessary AWS resources
-    and configurations including S3, CloudFront, and related services.
+    Builds and deploys a Blazor WASM application to the S3 assets bucket
+    managed by the tenant CDN stack ({SystemKey}-{TenantKey}--cdn).
+    Reads the bucket name and CloudFront distribution ID from the CDN stack
+    outputs, syncs the published files, and invalidates the CloudFront cache.
+.PARAMETER TenantKey
+    Optional. The tenant key for config file discovery. Auto-detected when
+    only one tenant config exists for the current environment.
 .PARAMETER ProjectFolder
     The folder containing the web application project (defaults to "WASMApp")
 .PARAMETER ProjectName
     The name of the web application project (defaults to "WASMApp")
 .EXAMPLE
     Deploy-WebappAws
-    Deploys the web application using default project folder and name
+    Auto-detects tenant config, publishes, syncs to S3, and invalidates CloudFront
 .EXAMPLE
-    Deploy-WebappAws -ProjectFolder "MyApp" -ProjectName "MyWebApp"
-    Deploys the web application from the specified project
+    Deploy-WebappAws -TenantKey "ezra"
+    Deploys using the specified tenant's CDN stack
 .NOTES
-    Requires valid AWS credentials and appropriate permissions
-    Must be run in the webapp Solution root folder
+    Requires the CDN stack to be deployed first (Deploy-TenantCDNAws).
+    Must be run from the webapp Solution root folder.
 .OUTPUTS
-    None
+    Boolean - $true on success, $false on failure
 #>
 function Get-PublishFolderPath {
     [CmdletBinding()]
@@ -120,53 +125,45 @@ Error Details: $($_.Exception.Message)
 
 function Deploy-WebappAws {
     [CmdletBinding()]
-    param( 
+    param(
+        [string]$TenantKey,
         [string]$ProjectFolder="WASMApp",
         [string]$ProjectName="WASMApp"
     )
     try {
         Write-LzAwsVerbose "Starting web application deployment"
 
-        $null = Get-SystemConfig
+        # Load tenant config (sets $script:Config, $script:ProfileName, etc.)
+        $null = Get-TenantConfig -TenantKey $TenantKey
         $ProfileName = $script:ProfileName
         $Region = $script:Region
-        $Account = $script:Account      
+        $Account = $script:Account
         $Config = $script:Config
         $SystemKey = $Config.SystemKey
-        $SystemSuffix = $Config.SystemSuffix
+        $TenantKey = $Config.TenantKey
 
-        # Verify apppublish.json exists and is valid
-        $AppPublishPath = "./$ProjectFolder/apppublish.json"
-        if (-not (Test-Path $AppPublishPath)) {
+        # Read CDN stack outputs to get the S3 bucket name
+        # The bucket is created by the CDN stack (Deploy-TenantCDNAws)
+        $CdnStackName = "$SystemKey-$TenantKey--cdn"
+        Write-LzAwsVerbose "Reading CDN stack outputs from '$CdnStackName'"
+        $CdnOutputs = Get-StackOutputs -SourceStackName $CdnStackName
+        $BucketName = $CdnOutputs["AssetsBucketName"]
+        $DistributionId = $CdnOutputs["CloudFrontDistributionId"]
+
+        if ([string]::IsNullOrWhiteSpace($BucketName)) {
             $errorMessage = @"
-Error: apppublish.json not found
+Error: AssetsBucketName not found in CDN stack outputs
 Function: Deploy-WebappAws
 Hints:
-  - Check if apppublish.json exists in: $AppPublishPath
-  - Verify the project folder is correct
-  - Ensure the configuration file is present
+  - Verify the CDN stack '$CdnStackName' was deployed successfully
+  - Check the stack outputs in CloudFormation console
+  - Ensure Deploy-TenantCDNAws completed before running Deploy-WebappAws
 "@
             throw $errorMessage
         }
 
-        $AppPublish = Get-Content -Path $AppPublishPath -Raw | ConvertFrom-Json
-        if ($null -eq $AppPublish.AppName) {
-            $errorMessage = @"
-Error: Invalid apppublish.json format
-Function: Deploy-WebappAws
-Hints:
-  - Check if AppName is defined in apppublish.json
-  - Verify the JSON format is valid
-  - Ensure all required fields are present
-"@
-            throw $errorMessage
-        }
-
-        $AppName = $AppPublish.AppName
-        $BucketName = "$SystemKey---webapp-$AppName-$SystemSuffix"
-
-        Write-LzAwsVerbose "Creating S3 bucket: $BucketName"
-        New-LzAwsS3Bucket -BucketName $BucketName -Region $Region -Account $Account -BucketType "WEBAPP" -ProfileName $ProfileName
+        Write-LzAwsVerbose "Target S3 bucket: $BucketName"
+        Write-LzAwsVerbose "CloudFront distribution: $DistributionId"
 
         # Publish the application
         Write-LzAwsVerbose "Publishing application..."
@@ -185,12 +182,12 @@ Command Output: $($result | Out-String)
 "@
                 throw $errorMessage
         }
-        
+
         # Get the publish folder path
         $LocalFolderPath = Get-PublishFolderPath -ProjectFolder "./$ProjectFolder" -ProjectName $ProjectName
         Write-LzAwsVerbose "Using publish folder: $LocalFolderPath"
-        
-        # Perform the sync operation
+
+        # Sync to S3 (under /wwwroot prefix, matching CloudFront OriginPath)
         $S3KeyPrefix = "wwwroot"
         $SyncCommand = "aws s3 sync `"$LocalFolderPath`" `"s3://$BucketName/$S3KeyPrefix`" --delete --region $Region --profile `"$ProfileName`""
         Write-LzAwsVerbose "Running sync command: $SyncCommand"
@@ -210,7 +207,20 @@ Command Output: $($SyncResult | Out-String)
 "@
             throw $errorMessage
         }
-        Write-Host "Successfully deployed web application" -ForegroundColor Green
+
+        # Invalidate CloudFront cache
+        if (-not [string]::IsNullOrWhiteSpace($DistributionId)) {
+            Write-LzAwsVerbose "Invalidating CloudFront cache for distribution $DistributionId"
+            $InvalidateResult = aws cloudfront create-invalidation --distribution-id $DistributionId --paths "/*" --region $Region --profile $ProfileName 2>&1
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -ne 0) {
+                Write-Host "Warning: CloudFront invalidation failed (non-fatal): $($InvalidateResult | Out-String)" -ForegroundColor Yellow
+            } else {
+                Write-LzAwsVerbose "CloudFront invalidation created"
+            }
+        }
+
+        Write-Host "Successfully deployed web application to $BucketName" -ForegroundColor Green
     }
     catch {
         Write-Host ($_.Exception.Message)

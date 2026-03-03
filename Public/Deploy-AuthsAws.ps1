@@ -24,7 +24,7 @@ function Deploy-AuthsAws {
         $null = Get-SystemConfig
         $ProfileName = $script:ProfileName
         $Region = $script:Region
-        $Config = $script:Config
+        $Config = $script:SystemConfig
         $SystemKey = $Config.SystemKey
 
         # =====================================================================

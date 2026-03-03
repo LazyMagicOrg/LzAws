@@ -22,7 +22,7 @@
 # foa a subtenant entry, the domain includes the subdomain. ex: store1.example.com
 #
 
-function Get-TenantConfig {
+function Get-TenantKVSEntries {
     [CmdletBinding()]
     param( 
         [Parameter(Mandatory=$true)]
@@ -45,7 +45,7 @@ function Get-TenantConfig {
     if($Config.Tenants.ContainsKey($TenantKey) -eq $false) {
         $errorMessage = @"
 Error: Tenant '$TenantKey' is not defined in the SystemConfig.yaml file
-Function: Get-TenantConfig
+Function: Get-TenantKVSEntries
 Hints:
 - Check if the tenant is defined in systemconfig.yaml
 - Verify the tenant key is spelled correctly
@@ -67,7 +67,7 @@ Hints:
     catch {
         $errorMessage = @"
 Error: Failed to process system behaviors
-Function: Get-TenantConfig
+Function: Get-TenantKVSEntries
 Hints:
 - Check if behaviors are properly defined in systemconfig.yaml
 - Verify the behavior format is correct
@@ -86,7 +86,7 @@ Error Details: $($_.Exception.Message)
     catch {
         $errorMessage = @"
 Error: Failed to generate tenant KVS entry for tenant '$TenantKey'
-Function: Get-TenantConfig
+Function: Get-TenantKVSEntries
 Hints:
 - Check tenant configuration in systemconfig.yaml
 - Verify all required tenant properties are present
@@ -142,7 +142,7 @@ Error Details: $($_.Exception.Message)
         catch {
             $errorMessage = @"
 Error: Failed to process subtenant '$($Subtenant.Key)'
-Function: Get-TenantConfig
+Function: Get-TenantKVSEntries
 Hints:
 - Check subtenant configuration in systemconfig.yaml
 - Verify all required subtenant properties are present

@@ -71,6 +71,7 @@ PowerShellVersion = '5.1'
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
 FunctionsToExport = @(
+    # Legacy deploy scripts (pre-platform architecture)
     'Deploy-AuthsAws',
     'Deploy-DataAws',
     'Deploy-DockerAws',
@@ -80,12 +81,23 @@ FunctionsToExport = @(
     'Deploy-TenantAws',
     'Deploy-TenantsAws',
     'Deploy-WebappAws',
+    # Platform architecture deploy scripts
+    'Deploy-PlatformAws',
+    'Deploy-TenantAuthAws',
+    'Deploy-TenantCDNAws',
+    'Deploy-TenantDataAws',
+    'Deploy-TenantPoliciesAws',
+    'Deploy-TenantServiceAws',
+    # Config loaders
+    'Get-PlatformConfig',
+    'Get-SystemConfig',
+    'Get-TenantConfig',
+    'Get-TenantConfigAws',
+    # Utilities
     'Get-AssetsAws',
     'Get-AwsCommands',
     'Get-CDNLogAws',
     'Get-CertificateAws',
-    'Get-SystemConfig',
-    'Get-TenantConfigAws',
     'Get-VersionAws',
     'Invoke-DockerComposeAws',
     'Open-TunnelAws',
