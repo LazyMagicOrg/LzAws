@@ -88,6 +88,7 @@ FunctionsToExport = @(
     'Deploy-TenantDataAws',
     'Deploy-TenantPoliciesAws',
     'Deploy-TenantServiceAws',
+    'Deploy-TenantThemesAws',
     # Config loaders
     'Get-PlatformConfig',
     'Get-SystemConfig',
