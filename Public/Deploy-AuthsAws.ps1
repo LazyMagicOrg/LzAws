@@ -120,6 +120,35 @@ function Deploy-AuthsAws {
                 }
             }
 
+            # Upload Keycloak theme assets to S3 and generate pre-signed URL
+            # for the theme init task. Tars up the entire Assets/KeycloakThemes/
+            # directory (preserving subfolder structure) and uploads as a .tar.gz.
+            $ThemeAssetsDir = "Assets/KeycloakThemes"
+            if (Test-Path -Path $ThemeAssetsDir -PathType Container) {
+                try {
+                    $S3ThemeKey = "keycloak-themes/themes.tar.gz"
+                    $TarballPath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "keycloak-themes.tar.gz")
+                    Write-LzAwsVerbose "Creating theme tarball from $ThemeAssetsDir"
+                    tar czf $TarballPath -C $ThemeAssetsDir .
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-LzAwsVerbose "Uploading theme tarball to s3://$ArtifactsBucket/$S3ThemeKey"
+                        aws s3 cp $TarballPath "s3://$ArtifactsBucket/$S3ThemeKey" --region $Region --profile $ProfileName
+                        if ($LASTEXITCODE -eq 0) {
+                            $ThemePreSignedUrl = aws s3 presign "s3://$ArtifactsBucket/$S3ThemeKey" --expires-in 3600 --region $Region --profile $ProfileName
+                            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($ThemePreSignedUrl)) {
+                                $ParametersDict["KeycloakThemeUrlParameter"] = $ThemePreSignedUrl
+                                Write-LzAwsVerbose "Generated pre-signed URL for Keycloak theme tarball"
+                            }
+                        }
+                    }
+                    Remove-Item -Path $TarballPath -Force -ErrorAction SilentlyContinue
+                } catch {
+                    Write-LzAwsVerbose "Warning: Failed to upload Keycloak themes: $($_.Exception.Message)"
+                }
+            } else {
+                Write-LzAwsVerbose "No Keycloak theme assets found at $ThemeAssetsDir — skipping theme upload"
+            }
+
             # Filter to only parameters the template expects
             $TemplateParameters = Get-TemplateParameters -TemplatePath "Templates/sam.auth.yaml"
             $FilteredParametersDict = @{}
@@ -187,6 +216,36 @@ Error Details: $result
                 Write-LzAwsVerbose "Successfully updated KVS with auth configuration"
             } else {
                 Write-LzAwsVerbose "Skipping KVS update: KeyValueStoreArn is '$KeyValueStoreArn' (no CloudFront KVS in ECS mode)"
+            }
+
+            # Run Keycloak theme init task if theme assets were uploaded
+            if (-not [string]::IsNullOrWhiteSpace($ParametersDict["KeycloakThemeUrlParameter"])) {
+                $themeInitTaskArn = $StackOutputs["KeycloakThemeInitTaskDefinitionArn"]
+                $clusterArn = $SystemStackOutputDict["EcsClusterArn"]
+                $subnet1 = $SystemStackOutputDict["PrivateSubnet1Id"]
+                $subnet2 = $SystemStackOutputDict["PrivateSubnet2Id"]
+                $securityGroup = $SystemStackOutputDict["EcsPublicSecurityGroupId"]
+
+                if (-not [string]::IsNullOrEmpty($clusterArn) -and
+                    -not [string]::IsNullOrEmpty($subnet1) -and
+                    -not [string]::IsNullOrEmpty($securityGroup) -and
+                    -not [string]::IsNullOrEmpty($themeInitTaskArn)) {
+
+                    $taskFamily = "$SystemKey-keycloak-theme-init"
+
+                    $initResult = Invoke-EcsInitTask `
+                        -TaskFamily $taskFamily `
+                        -ClusterArn $clusterArn `
+                        -Subnets "$subnet1,$subnet2" `
+                        -SecurityGroup $securityGroup `
+                        -Description "Keycloak theme initialization"
+
+                    if (-not $initResult) {
+                        Write-Host "Warning: Keycloak theme initialization task failed. Check CloudWatch logs." -ForegroundColor Yellow
+                    }
+                } else {
+                    Write-LzAwsVerbose "Skipping theme init: required stack outputs not found"
+                }
             }
 
             Write-Host "Successfully deployed authentication stack (ECS/Keycloak)" -ForegroundColor Green
